@@ -25,12 +25,5 @@ RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.pytho
 # Create working directories
 RUN mkdir -p /input /output
 
-# Copy the main script
-COPY split_letters.py /usr/local/bin/split_letters.py
-RUN chmod +x /usr/local/bin/split_letters.py
-
 # Set the working directory
 WORKDIR /work
-
-# Set the entrypoint to the main script
-ENTRYPOINT ["python3", "/usr/local/bin/split_letters.py"]
