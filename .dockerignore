@@ -1,0 +1,10 @@
+.git
+.gitignore
+README.md
+LICENSE
+*.pyc
+__pycache__
+.pytest_cache
+*.egg-info
+dist
+build
