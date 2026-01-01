@@ -283,7 +283,7 @@ def cleanup_text_noise(text: str) -> str:
         Cleaned text
     """
     # Remove emails
-    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', text)
+    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b', '', text)
     
     # Remove URLs
     text = re.sub(r'https?://[^\s]+', '', text)
@@ -293,7 +293,7 @@ def cleanup_text_noise(text: str) -> str:
     text = re.sub(r'\b[A-Z]{2}\d{2}[\s\d]{10,}\b', '', text)
     
     # Remove BIC/SWIFT codes (e.g., COBADEFFXXX)
-    text = re.sub(r'\b[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?\b', '', text)
+    text = re.sub(r'\b[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?\b', '', text)
     
     # Remove phone/fax patterns
     text = re.sub(r'\b(?:Tel|Telefon|Phone|Fax)[\s.:]*[\d\s\-/()]{7,}\b', ' ', text, flags=re.IGNORECASE)
@@ -490,7 +490,8 @@ def extract_sender(text: str) -> Optional[str]:
         logger.info(f"Selected sender: '{sender}' (score: {best_score:.1f})")
         return sender
     
-    logger.debug(f"No sender candidate passed threshold (best score: {scored_candidates[0][0] if scored_candidates else 0:.1f})")
+    best_score = scored_candidates[0][0] if scored_candidates else 0.0
+    logger.debug(f"No sender candidate passed threshold (best score: {best_score:.1f})")
     return None
 
 
@@ -561,7 +562,8 @@ def extract_topic(text: str) -> Optional[str]:
         logger.info(f"Selected topic: '{topic}' (score: {best_score:.1f})")
         return topic
     
-    logger.debug(f"No topic candidate passed threshold (best score: {scored_candidates[0][0] if scored_candidates else 0:.1f})")
+    best_score = scored_candidates[0][0] if scored_candidates else 0.0
+    logger.debug(f"No topic candidate passed threshold (best score: {best_score:.1f})")
     return None
 
 
