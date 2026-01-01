@@ -1,18 +1,20 @@
 # Quick Start Guide
 
-Get started with LLM-enhanced PDF letter splitting in 3 steps:
+Get started with LLM-enhanced PDF letter splitting in 2 simple steps:
 
-## Step 1: Download a Model (One-Time Setup)
+## Step 1: Download Model & Build
 
 ```bash
-cd models
-wget https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf -O model.gguf
-cd ..
+# Download the model (~650 MB, one-time setup)
+./download-model.sh
+
+# Build the Docker images (embeds the model)
+docker-compose build
 ```
 
-**Alternative models**: See `models/README.md` for other options.
+**That's it!** The model is now embedded in the Docker image. No manual files to manage.
 
-## Step 2: Prepare Your Files
+## Step 2: Process Your PDFs
 
 ```bash
 # Create directories (if they don't exist)
@@ -20,25 +22,44 @@ mkdir -p input output
 
 # Copy your scanned PDF to input
 cp /path/to/your/letters.pdf input/
+
+# Process with LLM normalization
+docker-compose run --rm pdf-splitter /input/letters.pdf /output
 ```
 
-## Step 3: Process
+## Results
 
-### With LLM (Recommended)
+Your split PDFs appear in `output/` with clean names like:
+
+```
+2024-11-05-Deutsche-Bank-Kontoauszug.pdf
+2024-11-10-Finanzamt-München-Steuerbescheid.pdf
+2024-11-15-Versicherung-Beitragsrechnung.pdf
+```
+
+## GPU Support (Optional)
+
+If you have an NVIDIA GPU:
 
 ```bash
-# CPU-only
-docker-compose run --rm pdf-splitter /input/letters.pdf /output
+# Download model
+./download-model.sh
 
-# With GPU (if available)
+# Build with GPU support
+docker-compose -f docker-compose.gpu.yml build
+
+# Process with GPU acceleration
 docker-compose -f docker-compose.gpu.yml run --rm pdf-splitter /input/letters.pdf /output
 ```
 
-### Without LLM
+## Using a Different Model
 
 ```bash
-# Disable LLM, use heuristics only
-docker-compose run --rm -e LLAMA_ENABLED=false pdf-splitter /input/letters.pdf /output
+# Choose a model: tinyllama (default), llama32 (better), phi3 (best)
+./download-model.sh llama32
+
+# Rebuild to embed the new model
+docker-compose build
 ```
 
 ## Results

@@ -95,34 +95,49 @@ No manifest or sidecar files are generated.
 
 ## Usage (Docker Compose - Recommended with LLM)
 
-The recommended way to use this tool is with Docker Compose, which automatically starts both the PDF splitter and the LLM server:
+The recommended way to use this tool is with Docker Compose. **The model is embedded in the Docker image** - you download it once during setup, then everything works offline.
 
-### Setup
+### One-Time Setup
 
-1. **Download a model** (one-time setup):
-   ```bash
-   cd models
-   # Download a small German-capable model (Llama 3.2 1B recommended)
-   wget https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf -O model.gguf
-   cd ..
-   ```
+```bash
+# Step 1: Download the model (~650 MB, takes a few minutes)
+./download-model.sh
 
-2. **Process PDFs**:
-   ```bash
-   docker-compose run --rm pdf-splitter /input/input.pdf /output
-   ```
+# Step 2: Build the Docker images (embeds the model)
+docker-compose build
+```
 
-The LLM server will start automatically and normalize sender/topic names for cleaner filenames.
+That's it! The model is now embedded in the image. No additional setup or downloads needed.
+
+### Process PDFs
+
+```bash
+# Process your PDFs
+docker-compose run --rm pdf-splitter /input/input.pdf /output
+```
+
+The LLM server will start automatically with the embedded model and normalize sender/topic names for cleaner filenames.
 
 ### GPU Support
 
 If you have an NVIDIA GPU with Docker GPU support:
 
 1. Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
-2. The docker-compose.yml is already configured for GPU usage
-3. The LLM will automatically use GPU acceleration
+2. Download the model: `./download-model.sh`
+3. Build with GPU support: `docker-compose -f docker-compose.gpu.yml build`
+4. Run: `docker-compose -f docker-compose.gpu.yml run --rm pdf-splitter /input/input.pdf /output`
 
-For CPU-only: The setup works out of the box with no changes needed.
+### Using a Different Model
+
+To use a different model (e.g., better quality):
+
+```bash
+# Download a different model
+./download-model.sh llama32  # or phi3 for best quality
+
+# Rebuild to embed the new model
+docker-compose build
+```
 
 ---
 

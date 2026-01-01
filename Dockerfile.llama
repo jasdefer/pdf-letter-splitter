@@ -1,0 +1,42 @@
+# Dockerfile for llama-server with embedded model
+# This builds a self-contained llama.cpp server with model included
+#
+# SETUP INSTRUCTIONS:
+# 1. Download a GGUF model file and save it as "model.gguf" in the same directory as this Dockerfile
+#    Recommended: TinyLlama (~650 MB)
+#    wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -O model.gguf
+# 
+# 2. Build the image:
+#    docker build -f Dockerfile.llama -t pdf-llama-server .
+#
+# The model will be embedded in the image - no external files needed at runtime.
+
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install llama-cpp-python with server support
+RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org llama-cpp-python[server]
+
+# Create models directory
+RUN mkdir -p /models
+
+# Copy the model file from build context
+# Place your model.gguf file in the same directory as this Dockerfile before building
+COPY model.gguf /models/model.gguf
+
+# Set permissions
+RUN chmod 644 /models/model.gguf
+
+# Set working directory
+WORKDIR /models
+
+# Expose port
+EXPOSE 8080
+
+# Run llama-cpp-python server
+CMD ["python", "-m", "llama_cpp.server", "--model", "/models/model.gguf", "--host", "0.0.0.0", "--port", "8080", "--n_ctx", "2048", "--n_gpu_layers", "0"]

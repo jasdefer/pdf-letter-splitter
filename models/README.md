@@ -1,54 +1,66 @@
 # LLM Models Directory
 
-This directory should contain the GGUF model file for the llama.cpp server.
+**Note: The model is now embedded directly in the Docker image. You download it once, then build - no manual setup needed at runtime!**
 
-## Recommended Models
+## Quick Setup
 
-For German letter processing, we recommend using a small, efficient instruct model:
+Use the provided download script:
 
-### Option 1: Llama 3.2 1B Instruct (Recommended)
-- Model: `Llama-3.2-1B-Instruct-Q4_K_M.gguf`
-- Size: ~700 MB
-- Source: https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF
-- Good balance of speed and quality
-
-### Option 2: Phi-3 Mini Instruct
-- Model: `Phi-3-mini-4k-instruct-q4.gguf`
-- Size: ~2.3 GB
-- Source: https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf
-- Better quality, slightly slower
-
-### Option 3: TinyLlama
-- Model: `tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf`
-- Size: ~650 MB
-- Source: https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
-- Fastest, good for CPU-only
-
-## Download Instructions
-
-1. Choose a model from the options above
-2. Download the GGUF file from HuggingFace
-3. Place it in this directory
-4. Rename it to `model.gguf` or update `docker-compose.yml` with the correct filename
-
-Example using wget:
 ```bash
-# For Llama 3.2 1B Instruct (recommended)
+# Download the default model (TinyLlama, ~650 MB)
+./download-model.sh
+
+# Or choose a specific model:
+./download-model.sh tinyllama   # Fastest, ~650 MB
+./download-model.sh llama32     # Better quality, ~700 MB
+./download-model.sh phi3        # Best quality, ~2.3 GB
+```
+
+Then build:
+```bash
+docker-compose build
+```
+
+The model is now embedded in the Docker image - no external files needed!
+
+## Manual Download
+
+If you prefer to download manually:
+
+### TinyLlama (Recommended - Fast & Small)
+```bash
+wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -O model.gguf
+```
+
+### Llama 3.2 1B (Better Quality)
+```bash
 wget https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf -O model.gguf
 ```
 
-Or using curl:
+### Phi-3 Mini (Best Quality)
 ```bash
-curl -L https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf -o model.gguf
+# Note: This is a larger download (~2.3 GB)
+wget https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf -O model.gguf
 ```
 
-## Requirements
+## How It Works
 
-- The model must be in GGUF format
-- Recommend quantized models (Q4_K_M or Q5_K_M) for better performance
-- Model should be instruction-tuned for best results
-- File must be readable by the Docker container
+1. The `model.gguf` file is copied into the Docker image during build
+2. The llama-server starts with the embedded model
+3. No external files or mounts needed at runtime
+4. The model persists in the image - download once, use anywhere
+
+## Changing Models
+
+To use a different model:
+
+1. Delete the old model: `rm model.gguf`
+2. Download a new one (using the script or manually)
+3. Rebuild: `docker-compose build`
 
 ## Offline Usage
 
-Once downloaded, the model is stored locally and no internet connection is required at runtime.
+After building the image with an embedded model:
+- No internet connection required at runtime
+- No external model files needed
+- The container is fully self-contained

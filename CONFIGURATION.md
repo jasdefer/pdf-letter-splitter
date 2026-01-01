@@ -2,22 +2,18 @@
 
 ## Basic Usage (with LLM)
 
-1. Download a model:
-```bash
-cd models
-wget https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf -O model.gguf
-cd ..
-```
+Simple 2-step process - download model, then build:
 
-2. Process a PDF:
 ```bash
-# Create input/output directories if they don't exist
+# Step 1: Download model (one-time, ~650 MB)
+./download-model.sh
+
+# Step 2: Build with embedded model
+docker-compose build
+
+# Process PDFs (no additional setup needed)
 mkdir -p input output
-
-# Place your PDF in the input directory
 cp /path/to/your/scanned-letters.pdf input/
-
-# Run the splitter
 docker-compose run --rm pdf-splitter /input/scanned-letters.pdf /output
 
 # Results will be in the output directory
@@ -26,14 +22,26 @@ ls output/
 
 ## CPU-Only Usage
 
-The default `docker-compose.yml` is configured for CPU-only usage. Just use it as shown above.
+The default `docker-compose.yml` is configured for CPU-only usage with an embedded model:
+
+```bash
+./download-model.sh      # Download model once
+docker-compose build      # Build with embedded model
+docker-compose run --rm pdf-splitter /input/letters.pdf /output
+```
 
 ## GPU Usage (NVIDIA)
 
 If you have an NVIDIA GPU with Docker GPU support:
 
 ```bash
-# Use the GPU-enabled compose file
+# Download model once
+./download-model.sh
+
+# Build with GPU support
+docker-compose -f docker-compose.gpu.yml build
+
+# Use the GPU-enabled setup
 docker-compose -f docker-compose.gpu.yml run --rm pdf-splitter /input/scanned-letters.pdf /output
 ```
 
@@ -57,35 +65,43 @@ docker run --rm \
 
 ## Advanced Configuration
 
-### Custom Model Path
+### Using a Different Model
 
-Edit `docker-compose.yml` and change the model path:
-```yaml
-command: >
-  --server
-  --host 0.0.0.0
-  --port 8080
-  --model /models/your-custom-model.gguf
-  --ctx-size 2048
-  --n-gpu-layers 0
+To use a different model:
+
+```bash
+# Download your preferred model
+./download-model.sh llama32    # Better quality, ~700 MB
+# or
+./download-model.sh phi3        # Best quality, ~2.3 GB
+
+# Rebuild to embed the new model
+docker-compose build
+```
+
+See `models/README.md` for manual download options.
+
+### Manual Model Download
+
+If you prefer to download manually without the script:
+
+```bash
+# Download TinyLlama (recommended)
+wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -O model.gguf
+
+# Then build
+docker-compose build
 ```
 
 ### Adjust Context Size
 
-For longer letters, increase context size:
-```yaml
-command: >
-  ...
-  --ctx-size 4096
-  ...
+To handle longer letters, edit `Dockerfile.llama` and change the `--n_ctx` parameter:
+
+```dockerfile
+CMD ["python", "-m", "llama_cpp.server", "--model", "/models/model.gguf", "--host", "0.0.0.0", "--port", "8080", "--n_ctx", "4096", "--n_gpu_layers", "0"]
 ```
 
-### GPU Layers (for GPU usage)
-
-In `docker-compose.gpu.yml`, adjust `--n-gpu-layers`:
-- `0`: CPU only
-- `99`: Offload all layers to GPU (recommended)
-- `1-98`: Partial GPU offloading
+Then rebuild: `docker-compose build`
 
 ### Environment Variables
 
@@ -100,6 +116,19 @@ docker-compose run --rm \
 
 ## Troubleshooting
 
+### Model File Not Found
+
+Error: `model.gguf: No such file or directory` during build
+
+Solution:
+```bash
+# Download the model first
+./download-model.sh
+
+# Then build
+docker-compose build
+```
+
 ### LLM Server Not Starting
 
 Check logs:
@@ -108,9 +137,20 @@ docker-compose logs llama-server
 ```
 
 Common issues:
-- Model file not found: Ensure `models/model.gguf` exists
-- Out of memory: Use a smaller model or increase Docker memory limit
+- Model file missing: Run `./download-model.sh` before building
+- Out of memory: Use a smaller model (TinyLlama) or increase Docker memory limit
 - GPU not detected: Ensure NVIDIA Container Toolkit is installed
+
+### Build Takes Long Time
+
+The first build compiles llama-cpp-python which takes several minutes. This is normal. Subsequent builds are much faster (cached layers).
+
+### Download Failed
+
+If `./download-model.sh` fails:
+1. Check your internet connection
+2. Try manual download (see models/README.md)
+3. If HuggingFace is blocked, use a mirror or VPN
 
 ### LLM Not Being Used
 
