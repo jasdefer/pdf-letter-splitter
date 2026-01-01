@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 LLAMA_SERVER_URL = os.getenv('LLAMA_SERVER_URL', 'http://localhost:8080')
 LLAMA_ENABLED = os.getenv('LLAMA_ENABLED', 'false').lower() in ('true', '1', 'yes')
 LLAMA_TIMEOUT = 30  # seconds
+LLAMA_ENDPOINT = '/completion'  # llama.cpp completion endpoint
+
+# Text limits for LLM processing
+SENDER_TEXT_LIMIT = 1000  # characters - focus on header for sender
+TOPIC_TEXT_LIMIT = 2000   # characters - more context for topic
+
+# Character filtering pattern for German filenames
+ALLOWED_CHARS_PATTERN = r'[^a-zA-ZäöüßÄÖÜ\s\-]'
 
 
 def call_llm(prompt: str, max_tokens: int = 50) -> Optional[str]:
@@ -51,14 +59,19 @@ def call_llm(prompt: str, max_tokens: int = 50) -> Optional[str]:
         max_tokens: Maximum number of tokens to generate
         
     Returns:
-        The LLM response text or None if the call fails
+        The LLM response text or None if:
+        - LLAMA_ENABLED is False
+        - Network/connection errors occur
+        - HTTP request fails (non-2xx status)
+        - Response format is unexpected
+        - Timeout occurs (after LLAMA_TIMEOUT seconds)
     """
     if not LLAMA_ENABLED:
         logger.debug("LLM is disabled, skipping call")
         return None
     
     try:
-        url = f"{LLAMA_SERVER_URL}/completion"
+        url = f"{LLAMA_SERVER_URL}{LLAMA_ENDPOINT}"
         payload = {
             "prompt": prompt,
             "n_predict": max_tokens,
@@ -99,8 +112,8 @@ def normalize_sender_with_llm(ocr_text: str, fallback_sender: str) -> str:
     if not LLAMA_ENABLED:
         return fallback_sender
     
-    # Limit input text to first 1000 characters to focus on header
-    text_excerpt = ocr_text[:1000] if len(ocr_text) > 1000 else ocr_text
+    # Limit input text to first N characters to focus on header
+    text_excerpt = ocr_text[:SENDER_TEXT_LIMIT] if len(ocr_text) > SENDER_TEXT_LIMIT else ocr_text
     
     prompt = f"""Extract the sender name from this letter text. Return ONLY the organization or person name.
 Rules:
@@ -124,7 +137,7 @@ Sender name:"""
         words = result.split()
         if 1 <= len(words) <= 3:
             # Remove numbers and special characters
-            cleaned = re.sub(r'[^a-zA-ZäöüßÄÖÜ\s\-]', '', result)
+            cleaned = re.sub(ALLOWED_CHARS_PATTERN, '', result)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             if cleaned and len(cleaned) > 2:
                 logger.info(f"LLM normalized sender: '{fallback_sender}' -> '{cleaned}'")
@@ -148,8 +161,8 @@ def normalize_topic_with_llm(ocr_text: str, fallback_topic: str) -> str:
     if not LLAMA_ENABLED:
         return fallback_topic
     
-    # Limit input text to first 2000 characters for topic extraction
-    text_excerpt = ocr_text[:2000] if len(ocr_text) > 2000 else ocr_text
+    # Limit input text to first N characters for topic extraction
+    text_excerpt = ocr_text[:TOPIC_TEXT_LIMIT] if len(ocr_text) > TOPIC_TEXT_LIMIT else ocr_text
     
     prompt = f"""What is the main topic or purpose of this letter? Provide a short descriptive label.
 Rules:
@@ -174,7 +187,7 @@ Topic:"""
         words = result.split()
         if 1 <= len(words) <= 4:
             # Remove numbers and special characters (but keep German letters)
-            cleaned = re.sub(r'[^a-zA-ZäöüßÄÖÜ\s\-]', '', result)
+            cleaned = re.sub(ALLOWED_CHARS_PATTERN, '', result)
             cleaned = re.sub(r'\s+', ' ', cleaned).strip()
             if cleaned and len(cleaned) > 2:
                 logger.info(f"LLM normalized topic: '{fallback_topic}' -> '{cleaned}'")
