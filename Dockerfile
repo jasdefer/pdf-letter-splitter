@@ -25,5 +25,12 @@ RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.pytho
 # Create working directories
 RUN mkdir -p /input /output
 
+# Copy the processing script
+COPY process_pdf.py /usr/local/bin/process_pdf.py
+RUN chmod +x /usr/local/bin/process_pdf.py
+
 # Set the working directory
 WORKDIR /work
+
+# Set the entrypoint to run the processing script
+ENTRYPOINT ["python3", "/usr/local/bin/process_pdf.py"]
