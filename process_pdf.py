@@ -444,7 +444,7 @@ def extract_sender(text: str) -> Optional[str]:
                     candidates.append(cleaned)
     
     # Pattern 2: Look for lines with common government/institution keywords
-    institution_keywords = ['Finanzamt', 'Versicherung', 'Bank', 'Kasse', 'Amt', 'Behörde', 'Gericht']
+    institution_keywords = ['Finanzamt', 'Versicherung', 'Bank', 'Kasse', 'Amt', 'Behörde', 'Gericht', 'Agentur', 'Bundesamt', 'Landesamt']
     for line in first_lines:
         for keyword in institution_keywords:
             if keyword.lower() in line.lower():
