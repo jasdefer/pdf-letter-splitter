@@ -22,7 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies for OCR and PDF processing
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org \
     ocrmypdf \
-    pypdf
+    pypdf \
+    requests
 
 # Create working directories
 RUN mkdir -p /input /output

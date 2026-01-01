@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # llama.cpp server for LLM inference
+  llama-server:
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: pdf-llama-server
+    volumes:
+      # Mount directory containing GGUF model file
+      - ./models:/models:ro
+    command: >
+      --server
+      --host 0.0.0.0
+      --port 8080
+      --model /models/model.gguf
+      --ctx-size 2048
+      --n-gpu-layers 0
+    ports:
+      - "8080:8080"
+    # Healthcheck to ensure server is ready
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # PDF letter splitter service
+  pdf-splitter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdf-letter-splitter
+    volumes:
+      - ./input:/input
+      - ./output:/output
+    environment:
+      # LLM server configuration
+      - LLAMA_SERVER_URL=http://llama-server:8080
+      - LLAMA_ENABLED=true
+    depends_on:
+      llama-server:
+        condition: service_healthy
+    # Override entrypoint for interactive usage
+    # When running: docker-compose run --rm pdf-splitter /input/file.pdf /output

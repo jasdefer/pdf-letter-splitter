@@ -24,3 +24,11 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# LLM models (large files)
+models/*.gguf
+models/*.bin
+
+# Input/output directories
+input/
+output/

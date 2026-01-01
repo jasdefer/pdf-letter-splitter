@@ -12,6 +12,7 @@ Accepts a single scanned multi-page PDF and:
 """
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -22,6 +23,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 
 import ocrmypdf
+import requests
 from pypdf import PdfReader, PdfWriter
 
 
@@ -32,6 +34,154 @@ logging.basicConfig(
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
+
+
+# LLM Configuration
+LLAMA_SERVER_URL = os.getenv('LLAMA_SERVER_URL', 'http://localhost:8080')
+LLAMA_ENABLED = os.getenv('LLAMA_ENABLED', 'false').lower() in ('true', '1', 'yes')
+LLAMA_TIMEOUT = 30  # seconds
+
+
+def call_llm(prompt: str, max_tokens: int = 50) -> Optional[str]:
+    """
+    Call the llama.cpp server with a prompt and return the response.
+    
+    Args:
+        prompt: The prompt to send to the LLM
+        max_tokens: Maximum number of tokens to generate
+        
+    Returns:
+        The LLM response text or None if the call fails
+    """
+    if not LLAMA_ENABLED:
+        logger.debug("LLM is disabled, skipping call")
+        return None
+    
+    try:
+        url = f"{LLAMA_SERVER_URL}/completion"
+        payload = {
+            "prompt": prompt,
+            "n_predict": max_tokens,
+            "temperature": 0.1,  # Low temperature for consistent outputs
+            "stop": ["\n", "\n\n"],  # Stop at newlines
+            "stream": False
+        }
+        
+        response = requests.post(url, json=payload, timeout=LLAMA_TIMEOUT)
+        response.raise_for_status()
+        
+        result = response.json()
+        if 'content' in result:
+            return result['content'].strip()
+        
+        logger.warning(f"Unexpected LLM response format: {result}")
+        return None
+        
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"LLM call failed: {e}")
+        return None
+    except Exception as e:
+        logger.warning(f"Unexpected error calling LLM: {e}")
+        return None
+
+
+def normalize_sender_with_llm(ocr_text: str, fallback_sender: str) -> str:
+    """
+    Use LLM to normalize sender name to max 3 words, no addresses/numbers.
+    
+    Args:
+        ocr_text: OCR text from the first page of the letter
+        fallback_sender: Heuristic-extracted sender name as fallback
+        
+    Returns:
+        Normalized sender name (max 3 words)
+    """
+    if not LLAMA_ENABLED:
+        return fallback_sender
+    
+    # Limit input text to first 1000 characters to focus on header
+    text_excerpt = ocr_text[:1000] if len(ocr_text) > 1000 else ocr_text
+    
+    prompt = f"""Extract the sender name from this letter text. Return ONLY the organization or person name.
+Rules:
+- Maximum 3 words
+- No addresses, no numbers, no special characters
+- Example: "Deutsche Bank" or "Finanzamt München" or "Max Müller"
+
+Letter text:
+{text_excerpt}
+
+Sender name:"""
+    
+    result = call_llm(prompt, max_tokens=20)
+    
+    if result:
+        # Clean and validate result
+        result = result.strip()
+        # Remove quotes if present
+        result = result.strip('"\'')
+        # Check word count
+        words = result.split()
+        if 1 <= len(words) <= 3:
+            # Remove numbers and special characters
+            cleaned = re.sub(r'[^a-zA-ZäöüßÄÖÜ\s\-]', '', result)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            if cleaned and len(cleaned) > 2:
+                logger.info(f"LLM normalized sender: '{fallback_sender}' -> '{cleaned}'")
+                return cleaned.replace(' ', '-')
+    
+    logger.debug(f"LLM sender normalization failed, using fallback: {fallback_sender}")
+    return fallback_sender
+
+
+def normalize_topic_with_llm(ocr_text: str, fallback_topic: str) -> str:
+    """
+    Use LLM to normalize topic to max 4 words, human-readable label.
+    
+    Args:
+        ocr_text: OCR text from the full letter
+        fallback_topic: Heuristic-extracted topic as fallback
+        
+    Returns:
+        Normalized topic (max 4 words)
+    """
+    if not LLAMA_ENABLED:
+        return fallback_topic
+    
+    # Limit input text to first 2000 characters for topic extraction
+    text_excerpt = ocr_text[:2000] if len(ocr_text) > 2000 else ocr_text
+    
+    prompt = f"""What is the main topic or purpose of this letter? Provide a short descriptive label.
+Rules:
+- Maximum 4 words
+- No dates, no reference numbers
+- Human-readable, like: "Rechnung", "Vertragsänderung", "Zahlungserinnerung", "Jahresabrechnung"
+- German preferred for German letters
+
+Letter text:
+{text_excerpt}
+
+Topic:"""
+    
+    result = call_llm(prompt, max_tokens=30)
+    
+    if result:
+        # Clean and validate result
+        result = result.strip()
+        # Remove quotes if present
+        result = result.strip('"\'')
+        # Check word count
+        words = result.split()
+        if 1 <= len(words) <= 4:
+            # Remove numbers and special characters (but keep German letters)
+            cleaned = re.sub(r'[^a-zA-ZäöüßÄÖÜ\s\-]', '', result)
+            cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+            if cleaned and len(cleaned) > 2:
+                logger.info(f"LLM normalized topic: '{fallback_topic}' -> '{cleaned}'")
+                return cleaned.replace(' ', '-')
+    
+    logger.debug(f"LLM topic normalization failed, using fallback: {fallback_topic}")
+    return fallback_topic
 
 
 class Letter:
@@ -377,19 +527,34 @@ def extract_metadata(letter: Letter, page_texts: List[str]) -> None:
     """
     first_page_text = page_texts[letter.start_page]
     
-    # Extract date
+    # Get text for all pages of this letter (for topic extraction)
+    letter_full_text = '\n'.join(page_texts[letter.start_page:letter.end_page + 1])
+    
+    # Extract date (not normalized by LLM)
     letter.date = extract_date(first_page_text)
     if not letter.date:
         letter.date = "XXX"
     
-    # Extract sender
-    letter.sender = extract_sender(first_page_text)
-    if not letter.sender:
+    # Extract sender using heuristics
+    heuristic_sender = extract_sender(first_page_text)
+    if not heuristic_sender:
+        heuristic_sender = "XXX"
+    
+    # Normalize sender with LLM (with heuristic as fallback)
+    if heuristic_sender != "XXX":
+        letter.sender = normalize_sender_with_llm(first_page_text, heuristic_sender)
+    else:
         letter.sender = "XXX"
     
-    # Extract topic
-    letter.topic = extract_topic(first_page_text)
-    if not letter.topic:
+    # Extract topic using heuristics
+    heuristic_topic = extract_topic(first_page_text)
+    if not heuristic_topic:
+        heuristic_topic = "XXX"
+    
+    # Normalize topic with LLM (with heuristic as fallback)
+    if heuristic_topic != "XXX":
+        letter.topic = normalize_topic_with_llm(letter_full_text, heuristic_topic)
+    else:
         letter.topic = "XXX"
     
     logger.info(f"Metadata extracted for pages {letter.start_page + 1}-{letter.end_page + 1}:")

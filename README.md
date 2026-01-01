@@ -6,6 +6,8 @@ Each output PDF contains all pages belonging to exactly one letter and is named 
 
 The tool is designed to be **best-effort, fully automatic, and non-interactive**.
 
+**NEW:** Filenames are now **cleaned and normalized** using a local LLM for better readability.
+
 ---
 
 ## What this tool does
@@ -18,6 +20,7 @@ The tool is designed to be **best-effort, fully automatic, and non-interactive**
   * Date
   * Sender
   * Topic
+* **Normalizes sender and topic names** using a local LLM (optional)
 * Writes one PDF per detected letter
 
 No manual review step is included by design.
@@ -41,6 +44,10 @@ Example:
 ```
 2024-11-05-Finanzamt-Mahnung.pdf
 ```
+
+**With LLM normalization enabled:**
+- Sender: Shortened to max 3 words (e.g., "Deutsche Bank" instead of "Deutsche Bank AG Filiale München")
+- Topic: Human-readable, max 4 words (e.g., "Jahresabrechnung" instead of "Abrechnung-2024-Ref-12345")
 
 ### Partially or unrecognized letters
 
@@ -86,11 +93,47 @@ No manifest or sidecar files are generated.
 
 ---
 
-## Usage (Docker)
+## Usage (Docker Compose - Recommended with LLM)
+
+The recommended way to use this tool is with Docker Compose, which automatically starts both the PDF splitter and the LLM server:
+
+### Setup
+
+1. **Download a model** (one-time setup):
+   ```bash
+   cd models
+   # Download a small German-capable model (Llama 3.2 1B recommended)
+   wget https://huggingface.co/lmstudio-community/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf -O model.gguf
+   cd ..
+   ```
+
+2. **Process PDFs**:
+   ```bash
+   docker-compose run --rm pdf-splitter /input/input.pdf /output
+   ```
+
+The LLM server will start automatically and normalize sender/topic names for cleaner filenames.
+
+### GPU Support
+
+If you have an NVIDIA GPU with Docker GPU support:
+
+1. Install [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
+2. The docker-compose.yml is already configured for GPU usage
+3. The LLM will automatically use GPU acceleration
+
+For CPU-only: The setup works out of the box with no changes needed.
+
+---
+
+## Usage (Docker standalone - Without LLM)
+
+If you don't want to use the LLM feature, you can still use the standalone Docker image:
 
 Example:
 
 ```
+docker build -t pdf-letter-splitter .
 docker run --rm \
   -v /path/to/input:/input \
   -v /path/to/output:/output \
@@ -102,6 +145,7 @@ The container:
 
 * Reads exactly one input PDF
 * Writes all resulting PDFs into the output directory
+* Uses heuristic-based filename extraction (no LLM normalization)
 
 ---
 
@@ -111,5 +155,42 @@ The container:
 * Mis-splits or incorrect metadata can occur
 * No review or correction workflow is included
 * Best suited for scanned letters with reasonably standard layouts
+* LLM normalization improves filename quality but is not perfect
+* LLM requires a local model download (700 MB - 2.3 GB)
 
 If higher accuracy is required, manual correction after the fact is expected.
+
+---
+
+## Configuration
+
+### Environment Variables
+
+- `LLAMA_SERVER_URL`: URL of the llama.cpp server (default: `http://localhost:8080`)
+- `LLAMA_ENABLED`: Enable/disable LLM normalization (default: `false`, set to `true` in docker-compose)
+
+### Disabling LLM
+
+To disable LLM normalization:
+```bash
+docker-compose run --rm -e LLAMA_ENABLED=false pdf-splitter /input/file.pdf /output
+```
+
+Or use the standalone Docker image without docker-compose.
+
+---
+
+## Architecture
+
+When using docker-compose:
+
+1. **llama-server**: Runs llama.cpp with a GGUF model, provides HTTP API
+2. **pdf-splitter**: Python service that:
+   - Performs OCR on the input PDF
+   - Detects letter boundaries
+   - Extracts metadata using heuristics
+   - Calls LLM server to normalize sender/topic (if enabled)
+   - Falls back to heuristics if LLM fails
+   - Generates output PDFs with clean filenames
+
+Both services run offline once the model is downloaded.
