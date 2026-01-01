@@ -166,6 +166,7 @@ You can customize behavior by editing `.env` or setting environment variables:
 | `OUTPUT_DIR` | `/work/output` | Output directory (inside container) |
 | `LLM_TEMPERATURE` | `0.1` | LLM temperature (lower = more deterministic) |
 | `LLM_MAX_TOKENS` | `256` | Maximum tokens for LLM response |
+| `LLM_TIMEOUT` | `30` | Timeout for LLM requests (seconds) |
 
 See `.env.example` for more details.
 
@@ -184,6 +185,7 @@ See `.env.example` for more details.
 
 To process multiple PDFs, run the splitter service for each file:
 
+**CPU mode:**
 ```bash
 # Process first PDF
 INPUT_PDF=/work/input/file1.pdf docker compose --profile cpu run --rm splitter
@@ -192,16 +194,38 @@ INPUT_PDF=/work/input/file1.pdf docker compose --profile cpu run --rm splitter
 INPUT_PDF=/work/input/file2.pdf docker compose --profile cpu run --rm splitter
 ```
 
+**GPU mode:**
+```bash
+# Process first PDF
+INPUT_PDF=/work/input/file1.pdf docker compose --profile gpu run --rm splitter-gpu
+
+# Process second PDF
+INPUT_PDF=/work/input/file2.pdf docker compose --profile gpu run --rm splitter-gpu
+```
+
 ### Standalone LLM server
 
 You can keep the LLM server running and process PDFs separately:
 
+**CPU mode:**
 ```bash
 # Start only the LLM server
 docker compose --profile cpu up -d llama-server
 
 # Process PDFs as needed
 docker compose --profile cpu run --rm splitter
+
+# Stop the server when done
+docker compose down
+```
+
+**GPU mode:**
+```bash
+# Start only the LLM server
+docker compose --profile gpu up -d llama-server-gpu
+
+# Process PDFs as needed
+docker compose --profile gpu run --rm splitter-gpu
 
 # Stop the server when done
 docker compose down

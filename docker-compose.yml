@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # llama.cpp server for local LLM inference
   llama-server:
@@ -60,14 +58,13 @@ services:
       retries: 5
       start_period: 30s
 
-  # PDF letter splitter service
+  # PDF letter splitter service (CPU profile)
   splitter:
     build:
       context: .
       dockerfile: Dockerfile
     profiles:
       - cpu
-      - gpu
     volumes:
       # Mount work directory for input/output
       - ./work:/work
@@ -82,6 +79,28 @@ services:
     depends_on:
       llama-server:
         condition: service_healthy
+    # Override to allow splitter to exit after processing
+    restart: "no"
+
+  # PDF letter splitter service (GPU profile)
+  splitter-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - gpu
+    volumes:
+      # Mount work directory for input/output
+      - ./work:/work
+    environment:
+      # URL of the llama-server (internal docker network)
+      - LLAMA_BASE_URL=${LLAMA_BASE_URL:-http://llama-server-gpu:8080}
+      # Language hint for LLM prompts (German + English)
+      - MODEL_FIELDS_LANGUAGE_HINT=${MODEL_FIELDS_LANGUAGE_HINT:-deu+eng}
+      # Input/output paths (within container)
+      - INPUT_PDF=${INPUT_PDF:-/work/input/input.pdf}
+      - OUTPUT_DIR=${OUTPUT_DIR:-/work/output}
+    depends_on:
       llama-server-gpu:
         condition: service_healthy
     # Override to allow splitter to exit after processing
