@@ -196,7 +196,8 @@ def detect_letter_boundaries(page_texts: List[str]) -> List[Letter]:
             # Close previous letter
             letter = Letter(current_letter_start, page_num - 1)
             letters.append(letter)
-            logger.info(f"Letter detected: pages {current_letter_start + 1}-{page_num} | Reason: {reason}")
+            logger.info(f"Letter detected: pages {current_letter_start + 1}-{page_num}")
+            logger.info(f"  Next letter starts at page {page_num + 1} | Reason: {reason}")
             current_letter_start = page_num
     
     # Add the last letter
@@ -229,12 +230,14 @@ def extract_date(text: str) -> Optional[str]:
         except ValueError:
             pass
     
-    # Pattern 2: DD.MM.YY (assume 20XX for YY)
+    # Pattern 2: DD.MM.YY (assume 20XX for YY < 50, else 19XX)
     match = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{2})\b', text)
     if match:
         day, month, year = match.groups()
         try:
-            year_full = 2000 + int(year)
+            year_int = int(year)
+            # Use sliding window: 00-49 -> 2000-2049, 50-99 -> 1950-1999
+            year_full = 2000 + year_int if year_int < 50 else 1900 + year_int
             date_obj = datetime(year_full, int(month), int(day))
             return date_obj.strftime('%Y-%m-%d')
         except ValueError:
