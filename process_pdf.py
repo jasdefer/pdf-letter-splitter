@@ -272,9 +272,156 @@ def extract_date(text: str) -> Optional[str]:
     return None
 
 
+def cleanup_text_noise(text: str) -> str:
+    """
+    Remove common noise patterns from text (addresses, emails, URLs, long numbers, etc.).
+    
+    Args:
+        text: Text to clean
+        
+    Returns:
+        Cleaned text
+    """
+    # Remove emails
+    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', text)
+    
+    # Remove URLs
+    text = re.sub(r'https?://[^\s]+', '', text)
+    text = re.sub(r'www\.[^\s]+', '', text)
+    
+    # Remove IBAN patterns (e.g., DE89 3704 0044 0532 0130 00)
+    text = re.sub(r'\b[A-Z]{2}\d{2}[\s\d]{10,}\b', '', text)
+    
+    # Remove BIC/SWIFT codes (e.g., COBADEFFXXX)
+    text = re.sub(r'\b[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?\b', '', text)
+    
+    # Remove phone/fax patterns
+    text = re.sub(r'\b(?:Tel|Telefon|Phone|Fax)[\s.:]*[\d\s\-/()]{7,}\b', ' ', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b[\d\s\-/()]{10,}\b', ' ', text)  # Long digit sequences with formatting
+    
+    # Remove long digit sequences (>6 consecutive digits, likely IDs/numbers)
+    text = re.sub(r'\b\d{7,}\b', ' ', text)
+    
+    # Remove postal code + city patterns (German: 12345 CityName)
+    text = re.sub(r'\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+\b', '', text)
+    
+    # Remove street address patterns (StreetName 123, Str. 123)
+    text = re.sub(r'\b[A-ZÄÖÜ][a-zäöüß]+(?:straße|str\.|weg|platz|allee)\s+\d+[a-z]?\b', '', text, flags=re.IGNORECASE)
+    
+    # Remove reference number patterns (Az: ..., Ref: ..., Zeichen: ...)
+    text = re.sub(r'\b(?:Az|Ref|Reference|Zeichen|Aktenzeichen)[\s.:]+[\w\-/]+\b', '', text, flags=re.IGNORECASE)
+    
+    # Remove date patterns to avoid them appearing in names
+    text = re.sub(r'\b\d{1,2}\.\s*\d{1,2}\.\s*\d{2,4}\b', '', text)
+    
+    # Remove common page headers/footers
+    text = re.sub(r'\bSeite\s+\d+\s+von\s+\d+\b', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bPage\s+\d+\s+of\s+\d+\b', '', text, flags=re.IGNORECASE)
+    
+    # Collapse multiple spaces and punctuation
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'[^\w\s\-äöüßÄÖÜ]+', ' ', text)
+    
+    return text.strip()
+
+
+def score_candidate(text: str, is_sender: bool = True) -> float:
+    """
+    Score a candidate sender or topic based on quality heuristics.
+    
+    Higher scores are better. Returns 0.0 for invalid candidates.
+    
+    Scoring criteria:
+    - Letter to non-letter ratio (prefer text-heavy)
+    - Digit count penalty (prefer fewer digits)
+    - Word count (prefer 2-4 words for sender, 2-6 for topic)
+    - Length (prefer moderate length)
+    - Presence of noise patterns
+    
+    Args:
+        text: Candidate text
+        is_sender: True if scoring a sender, False if scoring a topic
+        
+    Returns:
+        Score from 0.0 to 100.0
+    """
+    if not text or len(text) < 3:
+        return 0.0
+    
+    # Start with base score
+    score = 50.0
+    
+    # Count letters vs non-letters
+    letters = sum(1 for c in text if c.isalpha())
+    digits = sum(1 for c in text if c.isdigit())
+    total_chars = len(text)
+    
+    if total_chars == 0:
+        return 0.0
+    
+    # Letter ratio bonus (prefer text-heavy candidates)
+    letter_ratio = letters / total_chars
+    score += letter_ratio * 30  # Up to +30 points
+    
+    # Digit penalty (too many digits suggests ID/reference)
+    digit_ratio = digits / total_chars
+    if digit_ratio > 0.3:
+        score -= 40  # Heavy penalty for digit-heavy text
+    elif digit_ratio > 0.15:
+        score -= 20
+    elif digit_ratio > 0.05:
+        score -= 10
+    
+    # Word count
+    words = [w for w in text.split() if len(w) > 1]
+    word_count = len(words)
+    
+    if is_sender:
+        # Sender: prefer 2-4 words
+        if 2 <= word_count <= 4:
+            score += 15
+        elif word_count == 1 or word_count == 5:
+            score += 5
+        else:
+            score -= 10
+    else:
+        # Topic: prefer 2-6 words
+        if 2 <= word_count <= 6:
+            score += 15
+        elif word_count == 1 or word_count == 7:
+            score += 5
+        else:
+            score -= 10
+    
+    # Length penalty (prefer moderate length)
+    if is_sender:
+        # Sender: prefer 8-30 characters
+        if 8 <= len(text) <= 30:
+            score += 10
+        elif len(text) > 50:
+            score -= 15
+    else:
+        # Topic: prefer 10-40 characters
+        if 10 <= len(text) <= 40:
+            score += 10
+        elif len(text) > 60:
+            score -= 15
+    
+    # Penalize remaining noise patterns that made it through cleanup
+    # (should be rare after cleanup, but extra safety)
+    if re.search(r'\d{4,}', text):  # Long number sequences
+        score -= 20
+    if re.search(r'\b[A-Z]{2}\d{2}', text):  # Looks like IBAN fragment
+        score -= 30
+    if re.search(r'[@/\\]', text):  # Special chars suggesting technical data
+        score -= 15
+    
+    return max(0.0, score)
+
+
 def extract_sender(text: str) -> Optional[str]:
     """
-    Extract sender from text (company or person name).
+    Extract sender from text (company or person name) using candidate scoring.
     
     Args:
         text: Text to search for sender
@@ -285,17 +432,16 @@ def extract_sender(text: str) -> Optional[str]:
     # Look for common sender patterns in the first portion of the text
     first_lines = text.split('\n')[:20]  # Check first 20 lines
     
+    candidates = []
+    
     # Pattern 1: Line with GmbH, AG, e.V., etc.
     for line in first_lines:
         if re.search(r'\b(?:GmbH|AG|KG|OHG|e\.V\.|eV)\b', line):
-            # Clean and extract company name
             line = line.strip()
-            if len(line) > 3 and len(line) < 100:
-                # Remove special characters, keep alphanumeric and spaces
-                sender = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', line)
-                sender = re.sub(r'\s+', '-', sender.strip())
-                if sender:
-                    return sender[:50]  # Limit length
+            if 3 < len(line) < 100:
+                cleaned = cleanup_text_noise(line)
+                if cleaned:
+                    candidates.append(cleaned)
     
     # Pattern 2: Look for lines with common government/institution keywords
     institution_keywords = ['Finanzamt', 'Versicherung', 'Bank', 'Kasse', 'Amt', 'Behörde', 'Gericht']
@@ -303,28 +449,54 @@ def extract_sender(text: str) -> Optional[str]:
         for keyword in institution_keywords:
             if keyword.lower() in line.lower():
                 line = line.strip()
-                if len(line) > 3 and len(line) < 100:
-                    sender = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', line)
-                    sender = re.sub(r'\s+', '-', sender.strip())
-                    if sender:
-                        return sender[:50]
+                if 3 < len(line) < 100:
+                    cleaned = cleanup_text_noise(line)
+                    if cleaned and cleaned not in candidates:
+                        candidates.append(cleaned)
     
     # Pattern 3: Capitalized words that might be names (2-3 words)
     for line in first_lines:
         # Look for 2-3 consecutive capitalized words
         match = re.search(r'\b([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,2})\b', line)
         if match:
-            sender = match.group(1)
-            sender = re.sub(r'\s+', '-', sender.strip())
-            if len(sender) > 3:
-                return sender[:50]
+            candidate = match.group(1)
+            if len(candidate) > 3:
+                cleaned = cleanup_text_noise(candidate)
+                if cleaned and cleaned not in candidates:
+                    candidates.append(cleaned)
     
+    # Score all candidates
+    scored_candidates = []
+    for candidate in candidates:
+        score = score_candidate(candidate, is_sender=True)
+        scored_candidates.append((score, candidate))
+    
+    # Sort by score (highest first)
+    scored_candidates.sort(reverse=True, key=lambda x: x[0])
+    
+    # Log top candidates for debugging
+    if scored_candidates:
+        logger.debug(f"Sender candidates (top 3):")
+        for i, (score, candidate) in enumerate(scored_candidates[:3]):
+            logger.debug(f"  {i+1}. [{score:.1f}] {candidate}")
+    
+    # Select best candidate if it passes threshold
+    MIN_SENDER_SCORE = 40.0
+    if scored_candidates and scored_candidates[0][0] >= MIN_SENDER_SCORE:
+        best_score, best_candidate = scored_candidates[0]
+        # Apply length limit and sanitize for filename
+        sender = re.sub(r'\s+', '-', best_candidate.strip())
+        sender = sender[:32]  # Hard limit: 32 chars for sender
+        logger.info(f"Selected sender: '{sender}' (score: {best_score:.1f})")
+        return sender
+    
+    logger.debug(f"No sender candidate passed threshold (best score: {scored_candidates[0][0] if scored_candidates else 0:.1f})")
     return None
 
 
 def extract_topic(text: str) -> Optional[str]:
     """
-    Extract topic/subject from text.
+    Extract topic/subject from text using candidate scoring.
     
     Args:
         text: Text to search for topic
@@ -332,6 +504,8 @@ def extract_topic(text: str) -> Optional[str]:
     Returns:
         Topic or None
     """
+    candidates = []
+    
     # Pattern 1: Explicit subject line (Betreff, Subject, Re:)
     subject_patterns = [
         r'(?:Betreff|Betr\.|Subject|Re)[\s:]+(.+?)(?:\n|$)',
@@ -342,11 +516,10 @@ def extract_topic(text: str) -> Optional[str]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             topic = match.group(1).strip()
-            # Clean up
-            topic = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', topic)
-            topic = re.sub(r'\s+', '-', topic.strip())
             if topic and len(topic) > 2:
-                return topic[:50]
+                cleaned = cleanup_text_noise(topic)
+                if cleaned and cleaned not in candidates:
+                    candidates.append(cleaned)
     
     # Pattern 2: Look for lines with keywords that suggest topic
     topic_keywords = ['Mahnung', 'Rechnung', 'Angebot', 'Kündigung', 'Vertrag', 
@@ -358,12 +531,37 @@ def extract_topic(text: str) -> Optional[str]:
             if keyword.lower() in line.lower():
                 # Extract the line containing the keyword
                 line = line.strip()
-                if len(line) > 3 and len(line) < 100:
-                    topic = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', line)
-                    topic = re.sub(r'\s+', '-', topic.strip())
-                    if topic:
-                        return topic[:50]
+                if 3 < len(line) < 100:
+                    cleaned = cleanup_text_noise(line)
+                    if cleaned and cleaned not in candidates:
+                        candidates.append(cleaned)
     
+    # Score all candidates
+    scored_candidates = []
+    for candidate in candidates:
+        score = score_candidate(candidate, is_sender=False)
+        scored_candidates.append((score, candidate))
+    
+    # Sort by score (highest first)
+    scored_candidates.sort(reverse=True, key=lambda x: x[0])
+    
+    # Log top candidates for debugging
+    if scored_candidates:
+        logger.debug(f"Topic candidates (top 3):")
+        for i, (score, candidate) in enumerate(scored_candidates[:3]):
+            logger.debug(f"  {i+1}. [{score:.1f}] {candidate}")
+    
+    # Select best candidate if it passes threshold
+    MIN_TOPIC_SCORE = 35.0
+    if scored_candidates and scored_candidates[0][0] >= MIN_TOPIC_SCORE:
+        best_score, best_candidate = scored_candidates[0]
+        # Apply length limit and sanitize for filename
+        topic = re.sub(r'\s+', '-', best_candidate.strip())
+        topic = topic[:48]  # Hard limit: 48 chars for topic
+        logger.info(f"Selected topic: '{topic}' (score: {best_score:.1f})")
+        return topic
+    
+    logger.debug(f"No topic candidate passed threshold (best score: {scored_candidates[0][0] if scored_candidates else 0:.1f})")
     return None
 
 
@@ -419,7 +617,7 @@ def sanitize_filename_component(component: str) -> str:
 
 def generate_output_filename(letter: Letter, unrecognized_counter: int) -> str:
     """
-    Generate output filename based on metadata.
+    Generate output filename based on metadata with overall length limit.
     
     Args:
         letter: Letter object with metadata
@@ -437,6 +635,28 @@ def generate_output_filename(letter: Letter, unrecognized_counter: int) -> str:
         date = sanitize_filename_component(letter.date)
         sender = sanitize_filename_component(letter.sender)
         topic = sanitize_filename_component(letter.topic)
+        
+        # Apply overall filename length limit (excluding .pdf extension)
+        # Target: max 100 chars total for filename
+        MAX_FILENAME_LENGTH = 100
+        
+        # Date is always 10 chars (YYYY-MM-DD), plus 2 dashes = 12 chars overhead
+        remaining_length = MAX_FILENAME_LENGTH - 12
+        
+        # Calculate current length
+        current_length = len(sender) + len(topic)
+        
+        if current_length > remaining_length:
+            # Need to shorten - prioritize sender, then topic
+            # Give sender at least 24 chars, rest to topic
+            sender_limit = min(len(sender), 24)
+            topic_limit = remaining_length - sender_limit
+            
+            sender = sender[:sender_limit]
+            topic = topic[:topic_limit] if topic_limit > 0 else ""
+            
+            logger.debug(f"Filename length exceeded {MAX_FILENAME_LENGTH}, shortened to sender={len(sender)}, topic={len(topic)}")
+        
         filename = f"{date}-{sender}-{topic}"
     
     return filename
