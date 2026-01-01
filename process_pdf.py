@@ -318,6 +318,11 @@ def cleanup_text_noise(text: str) -> str:
     text = re.sub(r'\bSeite\s+\d+\s+von\s+\d+\b', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\bPage\s+\d+\s+of\s+\d+\b', '', text, flags=re.IGNORECASE)
     
+    # Remove common letter prefixes that shouldn't be in names/topics
+    # Only remove when at start or with colon to avoid removing "Re" from "Rechnung"
+    text = re.sub(r'^(?:Betreff|Betr|Subject|Thema|Topic)[\s:]+', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(?:Betreff|Betr|Subject|Thema|Topic)[\s]*:', '', text, flags=re.IGNORECASE)
+    
     # Collapse multiple spaces and punctuation
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'[^\w\s\-äöüßÄÖÜ]+', ' ', text)
