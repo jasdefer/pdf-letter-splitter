@@ -10,6 +10,7 @@ FROM python:3.11-slim
 # - poppler-utils: PDF utilities (pdftotext, pdfinfo)
 # - qpdf: PDF manipulation tool
 # - ghostscript: PostScript and PDF interpreter (required by ocrmypdf)
+# - curl: For health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-deu \
@@ -17,12 +18,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     qpdf \
     ghostscript \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies for OCR and PDF processing
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org \
     ocrmypdf \
-    pypdf
+    pypdf \
+    requests
 
 # Create working directories
 RUN mkdir -p /input /output

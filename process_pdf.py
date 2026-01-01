@@ -7,20 +7,22 @@ Accepts a single scanned multi-page PDF and:
 2. Extract per-page text
 3. Detect letter boundaries using heuristics
 4. Split into one PDF per letter
-5. Extract metadata (date, sender, topic) from first page
+5. Extract metadata (date, sender, topic) from first page using local LLM
 6. Name outputs accordingly
 """
 
 import argparse
+import json
 import logging
 import os
 import re
 import sys
 import tempfile
-from datetime import datetime
+import time
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 
+import requests
 import ocrmypdf
 from pypdf import PdfReader, PdfWriter
 
@@ -32,6 +34,14 @@ logging.basicConfig(
     stream=sys.stdout
 )
 logger = logging.getLogger(__name__)
+
+
+# LLM Configuration - loaded from environment variables
+LLAMA_BASE_URL = os.getenv('LLAMA_BASE_URL', 'http://localhost:8080')
+MODEL_FIELDS_LANGUAGE_HINT = os.getenv('MODEL_FIELDS_LANGUAGE_HINT', 'deu+eng')
+LLM_TEMPERATURE = float(os.getenv('LLM_TEMPERATURE', '0.1'))
+LLM_MAX_TOKENS = int(os.getenv('LLM_MAX_TOKENS', '256'))
+LLM_TIMEOUT = int(os.getenv('LLM_TIMEOUT', '30'))
 
 
 class Letter:
@@ -210,166 +220,106 @@ def detect_letter_boundaries(page_texts: List[str]) -> List[Letter]:
     return letters
 
 
-def extract_date(text: str) -> Optional[str]:
+def call_llm_for_metadata(first_page_text: str, retry: bool = False) -> Dict[str, str]:
     """
-    Extract date from text and normalize to YYYY-MM-DD format.
+    Call local LLM to extract metadata from first page text.
     
     Args:
-        text: Text to search for dates
+        first_page_text: Text content of the first page
+        retry: If True, use a stricter prompt for retry
         
     Returns:
-        Date in YYYY-MM-DD format or None
+        Dictionary with keys: date, sender, topic (values may be "XXX" for unrecognized)
     """
-    # Pattern 1: DD.MM.YYYY
-    match = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b', text)
-    if match:
-        day, month, year = match.groups()
-        try:
-            date_obj = datetime(int(year), int(month), int(day))
-            return date_obj.strftime('%Y-%m-%d')
-        except ValueError:
-            pass
+    # Truncate text to focus on header region (first ~4000 characters or ~40 lines)
+    lines = first_page_text.split('\n')
+    truncated_text = '\n'.join(lines[:40])
+    if len(truncated_text) > 4000:
+        truncated_text = truncated_text[:4000]
     
-    # Pattern 2: DD.MM.YY (assume 20XX for YY < 50, else 19XX)
-    match = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{2})\b', text)
-    if match:
-        day, month, year = match.groups()
-        try:
-            year_int = int(year)
-            # Use sliding window: 00-49 -> 2000-2049, 50-99 -> 1950-1999
-            year_full = 2000 + year_int if year_int < 50 else 1900 + year_int
-            date_obj = datetime(year_full, int(month), int(day))
-            return date_obj.strftime('%Y-%m-%d')
-        except ValueError:
-            pass
-    
-    # Pattern 3: YYYY-MM-DD
-    match = re.search(r'\b(\d{4})-(\d{2})-(\d{2})\b', text)
-    if match:
-        year, month, day = match.groups()
-        try:
-            date_obj = datetime(int(year), int(month), int(day))
-            return date_obj.strftime('%Y-%m-%d')
-        except ValueError:
-            pass
-    
-    # Pattern 4: German month names
-    german_months = {
-        'januar': 1, 'februar': 2, 'märz': 3, 'april': 4, 'mai': 5, 'juni': 6,
-        'juli': 7, 'august': 8, 'september': 9, 'oktober': 10, 'november': 11, 'dezember': 12
+    # Build prompt based on whether this is a retry
+    if retry:
+        # Stricter prompt for retry
+        prompt = f"""You must respond with ONLY valid JSON. No other text.
+
+Extract these three fields from this letter text:
+- date: in YYYY-MM-DD format, or "XXX" if not found
+- sender: short sender name (no address), or "XXX" if not found  
+- topic: short topic/subject (no full sentences), or "XXX" if not found
+
+Letter languages: {MODEL_FIELDS_LANGUAGE_HINT}
+
+Letter text:
+{truncated_text}
+
+Response (JSON only):"""
+    else:
+        # Normal prompt
+        prompt = f"""Extract metadata from this letter. Return JSON only with these exact keys:
+- "date": normalize to YYYY-MM-DD format, or "XXX" if date not found or invalid
+- "sender": short sender name (company/person, no full address), or "XXX" if not found
+- "topic": short topic/subject (no address, no full sentence if avoidable), or "XXX" if not found
+
+The letter may be in German or English ({MODEL_FIELDS_LANGUAGE_HINT}).
+
+Letter text (first page):
+{truncated_text}
+
+Return ONLY a JSON object with the three keys. No other text."""
+
+    # Prepare request payload for llama.cpp /completion endpoint
+    payload = {
+        "prompt": prompt,
+        "temperature": LLM_TEMPERATURE,
+        "n_predict": LLM_MAX_TOKENS,
+        "stop": ["\n\n\n", "###"],  # Stop sequences
     }
-    for month_name, month_num in german_months.items():
-        pattern = rf'\b(\d{{1,2}})\.\s*{month_name}\s+(\d{{4}})\b'
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            day, year = match.groups()
-            try:
-                date_obj = datetime(int(year), month_num, int(day))
-                return date_obj.strftime('%Y-%m-%d')
-            except ValueError:
-                pass
     
-    return None
-
-
-def extract_sender(text: str) -> Optional[str]:
-    """
-    Extract sender from text (company or person name).
-    
-    Args:
-        text: Text to search for sender
+    try:
+        logger.info(f"Calling LLM at {LLAMA_BASE_URL}/completion")
+        response = requests.post(
+            f"{LLAMA_BASE_URL}/completion",
+            json=payload,
+            timeout=LLM_TIMEOUT
+        )
+        response.raise_for_status()
         
-    Returns:
-        Sender name or None
-    """
-    # Look for common sender patterns in the first portion of the text
-    first_lines = text.split('\n')[:20]  # Check first 20 lines
-    
-    # Pattern 1: Line with GmbH, AG, e.V., etc.
-    for line in first_lines:
-        if re.search(r'\b(?:GmbH|AG|KG|OHG|e\.V\.|eV)\b', line):
-            # Clean and extract company name
-            line = line.strip()
-            if len(line) > 3 and len(line) < 100:
-                # Remove special characters, keep alphanumeric and spaces
-                sender = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', line)
-                sender = re.sub(r'\s+', '-', sender.strip())
-                if sender:
-                    return sender[:50]  # Limit length
-    
-    # Pattern 2: Look for lines with common government/institution keywords
-    institution_keywords = ['Finanzamt', 'Versicherung', 'Bank', 'Kasse', 'Amt', 'Behörde', 'Gericht']
-    for line in first_lines:
-        for keyword in institution_keywords:
-            if keyword.lower() in line.lower():
-                line = line.strip()
-                if len(line) > 3 and len(line) < 100:
-                    sender = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', line)
-                    sender = re.sub(r'\s+', '-', sender.strip())
-                    if sender:
-                        return sender[:50]
-    
-    # Pattern 3: Capitalized words that might be names (2-3 words)
-    for line in first_lines:
-        # Look for 2-3 consecutive capitalized words
-        match = re.search(r'\b([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,2})\b', line)
-        if match:
-            sender = match.group(1)
-            sender = re.sub(r'\s+', '-', sender.strip())
-            if len(sender) > 3:
-                return sender[:50]
-    
-    return None
-
-
-def extract_topic(text: str) -> Optional[str]:
-    """
-    Extract topic/subject from text.
-    
-    Args:
-        text: Text to search for topic
+        result = response.json()
         
-    Returns:
-        Topic or None
-    """
-    # Pattern 1: Explicit subject line (Betreff, Subject, Re:)
-    subject_patterns = [
-        r'(?:Betreff|Betr\.|Subject|Re)[\s:]+(.+?)(?:\n|$)',
-        r'(?:Thema|Topic)[\s:]+(.+?)(?:\n|$)',
-    ]
-    
-    for pattern in subject_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            topic = match.group(1).strip()
-            # Clean up
-            topic = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', topic)
-            topic = re.sub(r'\s+', '-', topic.strip())
-            if topic and len(topic) > 2:
-                return topic[:50]
-    
-    # Pattern 2: Look for lines with keywords that suggest topic
-    topic_keywords = ['Mahnung', 'Rechnung', 'Angebot', 'Kündigung', 'Vertrag', 
-                      'Bescheid', 'Mitteilung', 'Einladung', 'Bestätigung']
-    
-    lines = text.split('\n')
-    for line in lines[:30]:  # Check first 30 lines
-        for keyword in topic_keywords:
-            if keyword.lower() in line.lower():
-                # Extract the line containing the keyword
-                line = line.strip()
-                if len(line) > 3 and len(line) < 100:
-                    topic = re.sub(r'[^\w\s\-äöüßÄÖÜ]', '', line)
-                    topic = re.sub(r'\s+', '-', topic.strip())
-                    if topic:
-                        return topic[:50]
-    
-    return None
+        # Extract the generated text from response
+        # llama.cpp returns {"content": "...", ...}
+        generated_text = result.get('content', '')
+        
+        logger.debug(f"LLM raw response: {generated_text}")
+        
+        # Try to parse as JSON
+        # The response might have markdown code blocks or extra text
+        # Try to extract JSON from the response
+        json_match = re.search(r'\{[^{}]*"date"[^{}]*"sender"[^{}]*"topic"[^{}]*\}', generated_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+            metadata = json.loads(json_str)
+            
+            # Validate keys exist
+            if all(key in metadata for key in ['date', 'sender', 'topic']):
+                logger.info(f"Successfully extracted metadata via LLM")
+                return metadata
+        
+        # If we reach here, JSON parsing failed
+        logger.warning(f"Failed to parse JSON from LLM response: {generated_text[:200]}")
+        raise ValueError("Invalid JSON response from LLM")
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"HTTP request to LLM failed: {e}")
+        raise
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Failed to parse LLM response as JSON: {e}")
+        raise
 
 
-def extract_metadata(letter: Letter, page_texts: List[str]) -> None:
+def extract_metadata_with_llm(letter: Letter, page_texts: List[str]) -> None:
     """
-    Extract metadata from the first page of a letter.
+    Extract metadata from the first page of a letter using LLM.
     
     Args:
         letter: Letter object to populate with metadata
@@ -377,25 +327,59 @@ def extract_metadata(letter: Letter, page_texts: List[str]) -> None:
     """
     first_page_text = page_texts[letter.start_page]
     
-    # Extract date
-    letter.date = extract_date(first_page_text)
-    if not letter.date:
-        letter.date = "XXX"
+    try:
+        # Try to get metadata from LLM
+        metadata = call_llm_for_metadata(first_page_text)
+        
+        letter.date = metadata.get('date', 'XXX')
+        letter.sender = metadata.get('sender', 'XXX')
+        letter.topic = metadata.get('topic', 'XXX')
+        
+    except Exception as e:
+        logger.warning(f"First LLM attempt failed: {e}")
+        logger.info("Retrying with stricter prompt...")
+        
+        try:
+            # Retry with stricter prompt
+            metadata = call_llm_for_metadata(first_page_text, retry=True)
+            
+            letter.date = metadata.get('date', 'XXX')
+            letter.sender = metadata.get('sender', 'XXX')
+            letter.topic = metadata.get('topic', 'XXX')
+            
+        except Exception as retry_error:
+            logger.error(f"LLM retry also failed: {retry_error}")
+            logger.warning("Falling back to XXX for all fields")
+            
+            # Fallback to XXX for all fields
+            letter.date = 'XXX'
+            letter.sender = 'XXX'
+            letter.topic = 'XXX'
     
-    # Extract sender
-    letter.sender = extract_sender(first_page_text)
-    if not letter.sender:
-        letter.sender = "XXX"
-    
-    # Extract topic
-    letter.topic = extract_topic(first_page_text)
-    if not letter.topic:
-        letter.topic = "XXX"
+    # Sanitize extracted values (remove newlines, excess whitespace)
+    if letter.date != 'XXX':
+        letter.date = letter.date.strip().replace('\n', '')[:50]
+    if letter.sender != 'XXX':
+        letter.sender = letter.sender.strip().replace('\n', '')[:50]
+    if letter.topic != 'XXX':
+        letter.topic = letter.topic.strip().replace('\n', '')[:50]
     
     logger.info(f"Metadata extracted for pages {letter.start_page + 1}-{letter.end_page + 1}:")
     logger.info(f"  Date: {letter.date}")
     logger.info(f"  Sender: {letter.sender}")
     logger.info(f"  Topic: {letter.topic}")
+
+
+def extract_metadata(letter: Letter, page_texts: List[str]) -> None:
+    """
+    Extract metadata from the first page of a letter.
+    This function now uses LLM-based extraction.
+    
+    Args:
+        letter: Letter object to populate with metadata
+        page_texts: List of all page texts
+    """
+    extract_metadata_with_llm(letter, page_texts)
 
 
 def sanitize_filename_component(component: str) -> str:
@@ -540,18 +524,34 @@ def main():
     parser.add_argument(
         'input_pdf',
         type=str,
-        help='Path to input PDF file'
+        nargs='?',
+        default=None,
+        help='Path to input PDF file (or set INPUT_PDF env var)'
     )
     parser.add_argument(
         'output_dir',
         type=str,
-        help='Path to output directory'
+        nargs='?',
+        default=None,
+        help='Path to output directory (or set OUTPUT_DIR env var)'
     )
     
     args = parser.parse_args()
     
-    input_pdf = Path(args.input_pdf)
-    output_dir = Path(args.output_dir)
+    # Get input_pdf from args or environment
+    input_pdf_str = args.input_pdf or os.getenv('INPUT_PDF')
+    if not input_pdf_str:
+        logger.error("No input PDF specified. Provide as argument or set INPUT_PDF environment variable.")
+        sys.exit(1)
+    
+    # Get output_dir from args or environment
+    output_dir_str = args.output_dir or os.getenv('OUTPUT_DIR')
+    if not output_dir_str:
+        logger.error("No output directory specified. Provide as argument or set OUTPUT_DIR environment variable.")
+        sys.exit(1)
+    
+    input_pdf = Path(input_pdf_str)
+    output_dir = Path(output_dir_str)
     
     try:
         process_pdf(input_pdf, output_dir)

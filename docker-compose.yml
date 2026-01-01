@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # llama.cpp server for local LLM inference
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    profiles:
+      - cpu
+    volumes:
+      - ./models:/models:ro
+    environment:
+      # Model file path (user must download GGUF model to ./models/)
+      - LLAMA_ARG_MODEL=${LLAMA_ARG_MODEL:-/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf}
+      # Server configuration
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+      # Context size (adjust based on model and VRAM)
+      - LLAMA_ARG_CTX_SIZE=${LLAMA_ARG_CTX_SIZE:-4096}
+      # CPU-only mode (no GPU layers)
+      - LLAMA_ARG_N_GPU_LAYERS=0
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # llama.cpp server with NVIDIA GPU support
+  llama-server-gpu:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    profiles:
+      - gpu
+    volumes:
+      - ./models:/models:ro
+    environment:
+      # Model file path (user must download GGUF model to ./models/)
+      - LLAMA_ARG_MODEL=${LLAMA_ARG_MODEL:-/models/Qwen2.5-7B-Instruct-Q4_K_M.gguf}
+      # Server configuration
+      - LLAMA_ARG_HOST=0.0.0.0
+      - LLAMA_ARG_PORT=8080
+      # Context size (adjust based on model and VRAM)
+      - LLAMA_ARG_CTX_SIZE=${LLAMA_ARG_CTX_SIZE:-4096}
+      # GPU layers (999 = offload all layers to GPU)
+      - LLAMA_ARG_N_GPU_LAYERS=${LLAMA_ARG_N_GPU_LAYERS:-999}
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # PDF letter splitter service
+  splitter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - cpu
+      - gpu
+    volumes:
+      # Mount work directory for input/output
+      - ./work:/work
+    environment:
+      # URL of the llama-server (internal docker network)
+      - LLAMA_BASE_URL=${LLAMA_BASE_URL:-http://llama-server:8080}
+      # Language hint for LLM prompts (German + English)
+      - MODEL_FIELDS_LANGUAGE_HINT=${MODEL_FIELDS_LANGUAGE_HINT:-deu+eng}
+      # Input/output paths (within container)
+      - INPUT_PDF=${INPUT_PDF:-/work/input/input.pdf}
+      - OUTPUT_DIR=${OUTPUT_DIR:-/work/output}
+    depends_on:
+      llama-server:
+        condition: service_healthy
+      llama-server-gpu:
+        condition: service_healthy
+    # Override to allow splitter to exit after processing
+    restart: "no"
