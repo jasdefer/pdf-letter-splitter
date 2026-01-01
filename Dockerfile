@@ -9,12 +9,14 @@ FROM python:3.11-slim
 # - tesseract-ocr-eng: English language pack
 # - poppler-utils: PDF utilities (pdftotext, pdfinfo)
 # - qpdf: PDF manipulation tool
+# - ghostscript: PostScript and PDF interpreter (required by ocrmypdf)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-deu \
     tesseract-ocr-eng \
     poppler-utils \
     qpdf \
+    ghostscript \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies for OCR and PDF processing
