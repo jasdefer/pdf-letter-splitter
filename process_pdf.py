@@ -292,20 +292,57 @@ Return ONLY a JSON object with the three keys. No other text."""
         
         logger.debug(f"LLM raw response: {generated_text}")
         
-        # Try to parse as JSON
-        # The response might have markdown code blocks or extra text
-        # Try to extract JSON from the response
+        # Try multiple strategies to extract and parse JSON from the response
+        metadata = None
+        
+        # Strategy 1: Try to parse the entire response as JSON
+        try:
+            metadata = json.loads(generated_text.strip())
+            if all(key in metadata for key in ['date', 'sender', 'topic']):
+                logger.info(f"Successfully extracted metadata via LLM (direct parse)")
+                return metadata
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # Strategy 2: Remove markdown code blocks and try again
+        cleaned_text = re.sub(r'```(?:json)?\s*', '', generated_text)
+        cleaned_text = re.sub(r'```\s*', '', cleaned_text)
+        try:
+            metadata = json.loads(cleaned_text.strip())
+            if all(key in metadata for key in ['date', 'sender', 'topic']):
+                logger.info(f"Successfully extracted metadata via LLM (cleaned parse)")
+                return metadata
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # Strategy 3: Find first '{' and last '}', extract and parse
+        first_brace = generated_text.find('{')
+        last_brace = generated_text.rfind('}')
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            try:
+                json_str = generated_text[first_brace:last_brace + 1]
+                metadata = json.loads(json_str)
+                if all(key in metadata for key in ['date', 'sender', 'topic']):
+                    logger.info(f"Successfully extracted metadata via LLM (brace extraction)")
+                    return metadata
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # Strategy 4: Use regex as last resort (original approach)
         json_match = re.search(r'\{[^{}]*"date"[^{}]*"sender"[^{}]*"topic"[^{}]*\}', generated_text, re.DOTALL)
         if json_match:
-            json_str = json_match.group(0)
-            metadata = json.loads(json_str)
-            
-            # Validate keys exist
-            if all(key in metadata for key in ['date', 'sender', 'topic']):
-                logger.info(f"Successfully extracted metadata via LLM")
-                return metadata
+            try:
+                json_str = json_match.group(0)
+                metadata = json.loads(json_str)
+                
+                # Validate keys exist
+                if all(key in metadata for key in ['date', 'sender', 'topic']):
+                    logger.info(f"Successfully extracted metadata via LLM (regex extraction)")
+                    return metadata
+            except (json.JSONDecodeError, TypeError):
+                pass
         
-        # If we reach here, JSON parsing failed
+        # If we reach here, all JSON parsing strategies failed
         logger.warning(f"Failed to parse JSON from LLM response: {generated_text[:200]}")
         raise ValueError("Invalid JSON response from LLM")
         
