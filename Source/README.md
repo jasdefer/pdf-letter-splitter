@@ -54,16 +54,12 @@ The script generates a JSON file with the following structure:
 ## Features
 
 - **OCR Language Support**: German and English (`deu+eng`)
-- **High Resolution**: Renders PDF pages at 300 DPI for optimal OCR accuracy
+- **OCRmyPDF Integration**: Uses ocrmypdf to create searchable PDFs, then extracts text
 - **Text Normalization**: Applies minimal whitespace cleanup
   - Trims trailing spaces per line
   - Collapses multiple spaces/tabs into single space
   - Reduces excessive blank lines
   - Trims leading/trailing whitespace per page
-- **PDF Repair**: Automatically attempts to repair corrupted PDFs using:
-  - mutool (MuPDF)
-  - qpdf
-  - ghostscript
 - **Error Handling**: Exits with non-zero code on failures
 
 ## Running Tests
@@ -79,7 +75,6 @@ docker run --rm --entrypoint bash -v "$(pwd):/work" pdf-letter-splitter \
 
 The Docker image includes:
 - Python 3.11
-- Tesseract OCR with German and English language packs
-- Poppler utilities (for PDF rendering)
-- PDF repair tools (ghostscript, qpdf, mupdf-tools)
-- Python packages: pdf2image, pytesseract, pillow
+- OCRmyPDF with Tesseract OCR
+- German and English language packs for Tesseract
+- Python package: pypdf

@@ -2,7 +2,7 @@
 """
 OCR-based text extractor for PDF documents.
 
-Extracts text from each page of a PDF using Tesseract OCR with German + English language support.
+Extracts text from each page of a PDF using OCRmyPDF with German + English language support.
 """
 
 import argparse
@@ -13,119 +13,14 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 try:
-    import pdf2image
-    import pytesseract
+    import pypdf
 except ImportError as e:
     print(f"Error: Required package not found: {e}", file=sys.stderr)
-    print("Install with: pip install pdf2image pytesseract", file=sys.stderr)
+    print("Install with: pip install pypdf", file=sys.stderr)
     sys.exit(1)
-
-
-def repair_pdf(input_path: Path) -> Path:
-    """
-    Attempt to repair a PDF using various tools if the PDF has structural issues.
-    
-    Args:
-        input_path: Path to potentially damaged PDF
-        
-    Returns:
-        Path to repaired PDF (or original if no repair was needed)
-    """
-    try:
-        # Try to convert the PDF directly first
-        pdf2image.pdfinfo_from_path(str(input_path), userpw=None, ownerpw=None, strict=False)
-        # If successful, return original path
-        return input_path
-    except Exception:
-        # PDF has issues, try to repair it
-        pass
-    
-    # Try mutool clean first (often best for structural repairs)
-    try:
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.pdf')
-        os.close(temp_fd)
-        
-        mutool_cmd = [
-            'mutool',
-            'clean',
-            '-gggg',  # Garbage collect with extreme settings
-            str(input_path),
-            temp_path
-        ]
-        
-        result = subprocess.run(mutool_cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            # Verify the repaired PDF is readable
-            try:
-                pdf2image.pdfinfo_from_path(str(temp_path), userpw=None, ownerpw=None, strict=False)
-                return Path(temp_path)
-            except:
-                os.unlink(temp_path)
-        else:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-    except Exception:
-        pass
-    
-    # Try qpdf next
-    try:
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.pdf')
-        os.close(temp_fd)
-        
-        qpdf_cmd = [
-            'qpdf',
-            '--linearize',
-            str(input_path),
-            temp_path
-        ]
-        
-        result = subprocess.run(qpdf_cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            try:
-                pdf2image.pdfinfo_from_path(str(temp_path), userpw=None, ownerpw=None, strict=False)
-                return Path(temp_path)
-            except:
-                os.unlink(temp_path)
-        else:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-    except Exception:
-        pass
-    
-    # Try ghostscript as last resort
-    try:
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.pdf')
-        os.close(temp_fd)
-        
-        gs_cmd = [
-            'gs',
-            '-o', temp_path,
-            '-sDEVICE=pdfwrite',
-            '-dPDFSETTINGS=/prepress',
-            str(input_path)
-        ]
-        
-        result = subprocess.run(gs_cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            try:
-                pdf2image.pdfinfo_from_path(str(temp_path), userpw=None, ownerpw=None, strict=False)
-                return Path(temp_path)
-            except:
-                os.unlink(temp_path)
-        else:
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-    except Exception:
-        pass
-    
-    # If all repairs fail, return original path and let the error propagate
-    return input_path
 
 
 def normalize_whitespace(text: str) -> str:
@@ -171,6 +66,8 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
     """
     Extract text from all pages of a PDF using OCR.
     
+    Uses ocrmypdf to create a searchable PDF, then extracts text from each page.
+    
     Args:
         input_path: Path to input PDF file
         dpi: Resolution for PDF rendering (default: 300)
@@ -181,7 +78,8 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
         
     Raises:
         FileNotFoundError: If input file doesn't exist
-        Exception: For any other errors during processing
+        RuntimeError: For OCR processing errors
+        ValueError: For invalid PDF files
     """
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
@@ -189,57 +87,66 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
     if not input_path.is_file():
         raise ValueError(f"Input path is not a file: {input_path}")
     
-    # Attempt to repair PDF if needed
-    pdf_to_use = repair_pdf(input_path)
-    temp_pdf_created = (pdf_to_use != input_path)
+    # Create a temporary file for the OCR'd PDF
+    temp_fd, temp_ocr_pdf = tempfile.mkstemp(suffix='.pdf')
+    os.close(temp_fd)
     
     try:
-        # Convert PDF pages to images at specified DPI
-        # Use strict=False to allow handling of slightly malformed PDFs
-        images = pdf2image.convert_from_path(
-            str(pdf_to_use),
-            dpi=dpi,
-            fmt='png',
-            strict=False
-        )
-    except Exception as e:
-        if temp_pdf_created:
-            os.unlink(str(pdf_to_use))
-        raise RuntimeError(f"Failed to convert PDF to images: {e}")
-    
-    if not images:
-        if temp_pdf_created:
-            os.unlink(str(pdf_to_use))
-        raise ValueError("No pages found in PDF")
-    
-    pages = []
-    
-    for page_num, image in enumerate(images, start=1):
+        # Run ocrmypdf to create a searchable PDF
+        ocrmypdf_cmd = [
+            'ocrmypdf',
+            '--language', lang,
+            '--deskew',
+            '--output-type', 'pdf',
+            '--pdf-renderer', 'sandwich',
+            str(input_path),
+            temp_ocr_pdf
+        ]
+        
+        result = subprocess.run(ocrmypdf_cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            # ocrmypdf returns 0 for success, 1 for bad input, etc.
+            # Try to provide a helpful error message
+            error_msg = result.stderr if result.stderr else result.stdout
+            raise RuntimeError(f"OCR processing failed: {error_msg}")
+        
+        # Extract text from the searchable PDF
         try:
-            # Run OCR on the page image
-            text = pytesseract.image_to_string(image, lang=lang)
-            
-            # Apply whitespace normalization
-            normalized_text = normalize_whitespace(text)
-            
-            pages.append({
-                "page_number": page_num,
-                "text": normalized_text
-            })
-            
+            reader = pypdf.PdfReader(temp_ocr_pdf)
         except Exception as e:
-            if temp_pdf_created:
-                os.unlink(str(pdf_to_use))
-            raise RuntimeError(f"OCR failed on page {page_num}: {e}")
-    
-    # Clean up temporary file if created
-    if temp_pdf_created:
-        os.unlink(str(pdf_to_use))
-    
-    return {
-        "page_count": len(pages),
-        "pages": pages
-    }
+            raise RuntimeError(f"Failed to read OCR'd PDF: {e}")
+        
+        if len(reader.pages) == 0:
+            raise ValueError("No pages found in PDF")
+        
+        pages = []
+        
+        for page_num, page in enumerate(reader.pages, start=1):
+            try:
+                # Extract text from the page
+                text = page.extract_text()
+                
+                # Apply whitespace normalization
+                normalized_text = normalize_whitespace(text)
+                
+                pages.append({
+                    "page_number": page_num,
+                    "text": normalized_text
+                })
+                
+            except Exception as e:
+                raise RuntimeError(f"Text extraction failed on page {page_num}: {e}")
+        
+        return {
+            "page_count": len(pages),
+            "pages": pages
+        }
+        
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_ocr_pdf):
+            os.unlink(temp_ocr_pdf)
 
 
 def main():

@@ -6,13 +6,9 @@ WORKDIR /work
 
 # Install system dependencies for OCR and PDF processing
 RUN apt-get update && apt-get install -y \
-    tesseract-ocr \
+    ocrmypdf \
     tesseract-ocr-deu \
     tesseract-ocr-eng \
-    poppler-utils \
-    ghostscript \
-    qpdf \
-    mupdf-tools \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the extraction script
@@ -20,9 +16,7 @@ COPY extract_text.py /app/extract_text.py
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-    pdf2image \
-    pytesseract \
-    pillow
+    pypdf
 
 # Make script executable
 RUN chmod +x /app/extract_text.py
