@@ -113,3 +113,27 @@ The container:
 * Best suited for scanned letters with reasonably standard layouts
 
 If higher accuracy is required, manual correction after the fact is expected.
+
+---
+
+## OCR Text Extractor
+
+This repository also includes a standalone OCR text extraction tool located in the `Source/` directory.
+
+The extractor provides:
+
+* Per-page text extraction from scanned PDFs
+* OCR with German and English language support
+* JSON output format
+* Automatic PDF repair for corrupted documents
+* Docker-based deployment
+
+See [`Source/README.md`](Source/README.md) for detailed usage instructions.
+
+Quick example:
+
+```bash
+docker build -t pdf-letter-splitter Source/
+docker run --rm -v "$(pwd):/work" pdf-letter-splitter \
+  -i Test/test.pdf -o output.json
+```
