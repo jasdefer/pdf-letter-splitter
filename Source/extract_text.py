@@ -205,12 +205,12 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
     except Exception as e:
         if temp_pdf_created:
             os.unlink(str(pdf_to_use))
-        raise Exception(f"Failed to convert PDF to images: {e}")
+        raise RuntimeError(f"Failed to convert PDF to images: {e}")
     
     if not images:
         if temp_pdf_created:
             os.unlink(str(pdf_to_use))
-        raise Exception("No pages found in PDF")
+        raise ValueError("No pages found in PDF")
     
     pages = []
     
@@ -230,7 +230,7 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
         except Exception as e:
             if temp_pdf_created:
                 os.unlink(str(pdf_to_use))
-            raise Exception(f"OCR failed on page {page_num}: {e}")
+            raise RuntimeError(f"OCR failed on page {page_num}: {e}")
     
     # Clean up temporary file if created
     if temp_pdf_created:
