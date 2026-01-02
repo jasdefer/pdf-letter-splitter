@@ -79,7 +79,6 @@ def repair_pdf(input_path: Path) -> Path:
         qpdf_cmd = [
             'qpdf',
             '--linearize',
-            '--replace-input',
             str(input_path),
             temp_path
         ]

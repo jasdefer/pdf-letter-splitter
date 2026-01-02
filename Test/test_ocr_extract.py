@@ -68,13 +68,6 @@ class TestOCRExtract(unittest.TestCase):
         # Extract text from the test PDF
         result = extract_text_from_pdf(self.test_pdf_path)
         
-        # Verify each page has some text
-        for page in result['pages']:
-            page_num = page['page_number']
-            text = page['text']
-            # At least one page should have text (scanned PDFs may have some blank pages)
-            # But we'll check that at least some pages have content
-        
         # Verify that at least some pages have content
         pages_with_content = sum(1 for page in result['pages'] 
                                 if len(page['text'].strip()) > 0)
