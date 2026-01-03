@@ -2,6 +2,62 @@
 
 This directory contains a Dockerized Python script for extracting text from scanned PDF documents using OCR.
 
+## Docker Compose Setup (Recommended)
+
+The easiest way to run the OCR pipeline is using Docker Compose, which automatically manages both the OCR pipeline and a local LLM server.
+
+### Setup
+
+1. Copy the example environment file and edit it:
+   ```bash
+   cd Source
+   cp .env.example .env
+   ```
+
+2. Edit `.env` to configure:
+   - `INPUT_PDF`: Your input PDF filename (must exist in Source/)
+   - `OUTPUT_JSON`: Output JSON filename (debug only)
+   - `MODEL_FILE`: LLM model filename (must exist in Source/)
+   - `OCR_JOBS`: Number of parallel OCR jobs (0 = use all CPU cores)
+   - `COMPOSE_PROFILES`: Use `cpu` (default) or `gpu`
+
+3. Place your input PDF and model file in the Source/ directory:
+   ```bash
+   # Example
+   cp /path/to/your/document.pdf Source/input.pdf
+   cp /path/to/your/model.gguf Source/model.gguf
+   ```
+
+### Running
+
+**CPU mode (default):**
+```bash
+cd Source
+docker compose up --abort-on-container-exit
+```
+
+**GPU mode (requires nvidia-container-toolkit):**
+```bash
+cd Source
+docker compose --profile gpu up --abort-on-container-exit
+```
+
+The pipeline will run once and exit automatically. Both containers stop when the pipeline completes.
+
+### Cleanup
+
+To remove all containers after execution:
+```bash
+docker compose down
+```
+
+### Notes
+
+- The LLM server runs internally and is not exposed to the host
+- Pipeline → LLM communication is not yet implemented (infrastructure only)
+- Missing input PDF or model file will cause startup failures
+- GPU mode requires NVIDIA GPU and nvidia-container-toolkit
+
 ## Building the Docker Image
 
 ```bash

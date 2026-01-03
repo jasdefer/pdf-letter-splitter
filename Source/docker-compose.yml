@@ -1,12 +1,10 @@
-version: '3.8'
-
 name: pdf-letter-splitter
 
 services:
-  # LLM service using llama.cpp
+  # LLM service using llama.cpp (CPU mode - default)
   llm:
     image: ghcr.io/ggerganov/llama.cpp:latest
-    container_name: pdf-letter-splitter-llm
+    container_name: pdf-letter-splitter-llm-cpu
     # No host port exposure - internal only
     command: >
       --server
@@ -22,15 +20,14 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-    # CPU mode by default
-    profiles:
-      - ""
     restart: "no"
+    profiles:
+      - cpu
 
-  # LLM service with GPU support
+  # LLM service with GPU support (activated with --profile gpu)
   llm-gpu:
     image: ghcr.io/ggerganov/llama.cpp:latest
-    container_name: pdf-letter-splitter-llm
+    container_name: pdf-letter-splitter-llm-gpu
     command: >
       --server
       --host 0.0.0.0
@@ -52,16 +49,16 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    restart: "no"
     profiles:
       - gpu
-    restart: "no"
 
-  # Pipeline service for OCR processing
+  # Pipeline service for OCR processing (CPU mode - default)
   pipeline:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: pdf-letter-splitter-pipeline
+    container_name: pdf-letter-splitter-pipeline-cpu
     command:
       - "-i"
       - "${INPUT_PDF}"
@@ -75,16 +72,16 @@ services:
     depends_on:
       llm:
         condition: service_healthy
-    profiles:
-      - ""
     restart: "no"
+    profiles:
+      - cpu
 
-  # Pipeline service for GPU profile
+  # Pipeline service for GPU profile (depends on GPU llm)
   pipeline-gpu:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: pdf-letter-splitter-pipeline
+    container_name: pdf-letter-splitter-pipeline-gpu
     command:
       - "-i"
       - "${INPUT_PDF}"
@@ -97,6 +94,6 @@ services:
     depends_on:
       llm-gpu:
         condition: service_healthy
+    restart: "no"
     profiles:
       - gpu
-    restart: "no"
