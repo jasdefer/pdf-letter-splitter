@@ -62,7 +62,9 @@ def normalize_whitespace(text: str) -> str:
     return result
 
 
-def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng') -> Dict[str, Any]:
+def extract_text_from_pdf(input_path: Path, lang: str = 'deu+eng', 
+                          rotate: bool = True, deskew: bool = True, 
+                          jobs: int = 0) -> Dict[str, Any]:
     """
     Extract text from all pages of a PDF using OCR.
     
@@ -70,8 +72,10 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
     
     Args:
         input_path: Path to input PDF file
-        dpi: Resolution for PDF rendering (default: 300)
         lang: Tesseract language codes (default: 'deu+eng')
+        rotate: Enable automatic page rotation correction (default: True)
+        deskew: Enable deskewing of pages (default: True)
+        jobs: Number of parallel jobs (0 = use all CPU cores, default: 0)
         
     Returns:
         Dictionary with page_count and pages list
@@ -96,12 +100,22 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
         ocrmypdf_cmd = [
             'ocrmypdf',
             '--language', lang,
-            '--deskew',
+            '--force-ocr',  # Always use OCR, never rely on embedded text
             '--output-type', 'pdf',
             '--pdf-renderer', 'sandwich',
-            str(input_path),
-            temp_ocr_pdf
+            '--jobs', str(jobs),  # Enable parallel processing
         ]
+        
+        # Add optional rotation correction
+        if rotate:
+            ocrmypdf_cmd.append('--rotate-pages')
+        
+        # Add optional deskewing
+        if deskew:
+            ocrmypdf_cmd.append('--deskew')
+        
+        # Add input and output paths
+        ocrmypdf_cmd.extend([str(input_path), temp_ocr_pdf])
         
         result = subprocess.run(ocrmypdf_cmd, capture_output=True, text=True)
         
@@ -126,6 +140,10 @@ def extract_text_from_pdf(input_path: Path, dpi: int = 300, lang: str = 'deu+eng
             try:
                 # Extract text from the page
                 text = page.extract_text()
+                
+                # Handle cases where extract_text() returns None
+                if text is None:
+                    text = ""
                 
                 # Apply whitespace normalization
                 normalized_text = normalize_whitespace(text)
@@ -166,6 +184,22 @@ def main():
         default='output.json',
         help='Output JSON file path (default: output.json)'
     )
+    parser.add_argument(
+        '--no-rotate',
+        action='store_true',
+        help='Disable automatic page rotation correction'
+    )
+    parser.add_argument(
+        '--no-deskew',
+        action='store_true',
+        help='Disable deskewing of pages'
+    )
+    parser.add_argument(
+        '--jobs',
+        type=int,
+        default=0,
+        help='Number of parallel OCR jobs (0 = use all CPU cores, default: 0)'
+    )
     
     args = parser.parse_args()
     
@@ -174,7 +208,12 @@ def main():
     
     try:
         # Extract text from PDF
-        result = extract_text_from_pdf(input_path)
+        result = extract_text_from_pdf(
+            input_path,
+            rotate=not args.no_rotate,
+            deskew=not args.no_deskew,
+            jobs=args.jobs
+        )
         
         # Write results to JSON file
         with open(output_path, 'w', encoding='utf-8') as f:

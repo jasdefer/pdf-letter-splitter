@@ -30,6 +30,9 @@ docker run --rm -v "$(pwd):/work" pdf-letter-splitter
 
 - `-i, --input`: Input PDF file path (default: `input.pdf`)
 - `-o, --output`: Output JSON file path (default: `output.json`)
+- `--no-rotate`: Disable automatic page rotation correction (default: enabled)
+- `--no-deskew`: Disable deskewing of pages (default: enabled)
+- `--jobs`: Number of parallel OCR jobs (0 = use all CPU cores, default: 0)
 
 ## Output Format
 
@@ -54,12 +57,17 @@ The script generates a JSON file with the following structure:
 ## Features
 
 - **OCR Language Support**: German and English (`deu+eng`)
-- **OCRmyPDF Integration**: Uses ocrmypdf to create searchable PDFs, then extracts text
+- **OCRmyPDF Integration**: Uses ocrmypdf to create searchable PDFs with forced OCR on all pages
+- **Automatic Corrections**: 
+  - Page rotation correction (can be disabled with `--no-rotate`)
+  - Deskewing of skewed pages (can be disabled with `--no-deskew`)
+- **Parallel Processing**: Uses all available CPU cores by default for faster OCR
 - **Text Normalization**: Applies minimal whitespace cleanup
   - Trims trailing spaces per line
   - Collapses multiple spaces/tabs into single space
   - Reduces excessive blank lines
   - Trims leading/trailing whitespace per page
+- **Robust Text Extraction**: Handles cases where text extraction returns None
 - **Error Handling**: Exits with non-zero code on failures
 
 ## Running Tests
