@@ -1,0 +1,102 @@
+version: '3.8'
+
+name: pdf-letter-splitter
+
+services:
+  # LLM service using llama.cpp
+  llm:
+    image: ghcr.io/ggerganov/llama.cpp:latest
+    container_name: pdf-letter-splitter-llm
+    # No host port exposure - internal only
+    command: >
+      --server
+      --host 0.0.0.0
+      --port 8080
+      --model /models/${MODEL_FILE}
+    volumes:
+      # Mount the Source directory to access model file
+      - ./:/models:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    # CPU mode by default
+    profiles:
+      - ""
+    restart: "no"
+
+  # LLM service with GPU support
+  llm-gpu:
+    image: ghcr.io/ggerganov/llama.cpp:latest
+    container_name: pdf-letter-splitter-llm
+    command: >
+      --server
+      --host 0.0.0.0
+      --port 8080
+      --model /models/${MODEL_FILE}
+      --n-gpu-layers 999
+    volumes:
+      - ./:/models:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - gpu
+    restart: "no"
+
+  # Pipeline service for OCR processing
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdf-letter-splitter-pipeline
+    command:
+      - "-i"
+      - "${INPUT_PDF}"
+      - "-o"
+      - "${OUTPUT_JSON}"
+      - "--jobs"
+      - "${OCR_JOBS}"
+    volumes:
+      # Mount Source directory as /work for file access
+      - ./:/work
+    depends_on:
+      llm:
+        condition: service_healthy
+    profiles:
+      - ""
+    restart: "no"
+
+  # Pipeline service for GPU profile
+  pipeline-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pdf-letter-splitter-pipeline
+    command:
+      - "-i"
+      - "${INPUT_PDF}"
+      - "-o"
+      - "${OUTPUT_JSON}"
+      - "--jobs"
+      - "${OCR_JOBS}"
+    volumes:
+      - ./:/work
+    depends_on:
+      llm-gpu:
+        condition: service_healthy
+    profiles:
+      - gpu
+    restart: "no"
