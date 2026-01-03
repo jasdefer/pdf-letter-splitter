@@ -27,4 +27,7 @@ Thumbs.db
 *.pdf
 *.gguf
 
+# Environment files
+.env
+
 !Test/test.pdf
