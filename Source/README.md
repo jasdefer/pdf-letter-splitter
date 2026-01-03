@@ -6,6 +6,17 @@ This directory contains a Dockerized Python script for extracting text from scan
 
 The easiest way to run the OCR pipeline is using Docker Compose, which automatically manages both the OCR pipeline and a local LLM server.
 
+### Prerequisites
+
+The setup requires a llama.cpp server Docker image. You have several options:
+
+1. **Build from llama.cpp source**: Follow [llama.cpp Docker documentation](https://github.com/ggerganov/llama.cpp/tree/master/examples/server#docker) to build the image
+2. **Use a pre-built image**: If available, pull from `ghcr.io/ggerganov/llama.cpp:server`
+3. **Tag your own build**: If you build llama.cpp locally, tag it appropriately:
+   ```bash
+   docker tag your-llama-cpp-build ghcr.io/ggerganov/llama.cpp:server
+   ```
+
 ### Setup
 
 1. Copy the example environment file and edit it:
