@@ -68,6 +68,7 @@ docker compose down
 - Pipeline → LLM communication is not yet implemented (infrastructure only)
 - Missing input PDF or model file will cause startup failures
 - GPU mode requires NVIDIA GPU and nvidia-container-toolkit
+- **Model loading**: The LLM server has a 60-second startup period to allow for model loading. Larger models may take longer to load; the healthcheck will retry for up to 2 minutes before failing.
 
 ## Building the Docker Image
 
