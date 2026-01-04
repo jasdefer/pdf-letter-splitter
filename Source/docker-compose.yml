@@ -14,7 +14,7 @@ services:
       # Mount the Source directory to access model file
       - ./:/models:ro
     healthcheck:
-      test: ["CMD-SHELL", "timeout 1 sh -c '</dev/tcp/localhost/8080' || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -35,7 +35,7 @@ services:
     volumes:
       - ./:/models:ro
     healthcheck:
-      test: ["CMD-SHELL", "timeout 1 sh -c '</dev/tcp/localhost/8080' || exit 1"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 12

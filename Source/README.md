@@ -69,6 +69,7 @@ docker compose down
 - Missing input PDF or model file will cause startup failures
 - GPU mode requires NVIDIA GPU and nvidia-container-toolkit
 - **Model loading**: The LLM server has a 60-second startup period to allow for model loading. Larger models may take longer to load; the healthcheck will retry for up to 2 minutes before failing.
+- **Healthcheck**: Uses `curl` to check if the llama.cpp server is responding on the `/health` endpoint
 
 ## Building the Docker Image
 
