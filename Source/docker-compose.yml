@@ -3,7 +3,7 @@ name: pdf-letter-splitter
 services:
   # LLM service using llama.cpp (CPU mode - default)
   llm:
-    image: ghcr.io/ggerganov/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server
     container_name: pdf-letter-splitter-llm-cpu
     # No host port exposure - internal only
     command: >
@@ -26,7 +26,7 @@ services:
 
   # LLM service with GPU support (activated with --profile gpu)
   llm-gpu:
-    image: ghcr.io/ggerganov/llama.cpp:server-cuda
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: pdf-letter-splitter-llm-gpu
     command: >
       --server
