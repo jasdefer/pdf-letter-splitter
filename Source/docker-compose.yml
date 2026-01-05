@@ -17,7 +17,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 60
       start_period: 60s
     restart: "no"
     profiles:
@@ -38,7 +38,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 10s
       timeout: 5s
-      retries: 12
+      retries: 60
       start_period: 60s
     deploy:
       resources:
