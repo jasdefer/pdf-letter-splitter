@@ -14,6 +14,11 @@ import requests
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Constants
+MAX_PAGE_TEXT_LENGTH = 1500  # Maximum characters to send per page to LLM
+DEFAULT_LLM_TIMEOUT = 60  # Default timeout for LLM requests in seconds
+DEFAULT_STOP_TOKENS = ["\n\n"]  # Stop generation at double newline
+
 
 class BoundaryDecision:
     """Represents a boundary detection decision from the LLM."""
@@ -38,7 +43,8 @@ class BoundaryDecision:
 class LLMClient:
     """Client for communicating with llama.cpp server."""
     
-    def __init__(self, host: str = "llm", port: int = 8080, temperature: float = 0.1):
+    def __init__(self, host: str = "llm", port: int = 8080, temperature: float = 0.1, 
+                 timeout: int = DEFAULT_LLM_TIMEOUT):
         """
         Initialize the LLM client.
         
@@ -46,18 +52,22 @@ class LLMClient:
             host: LLM server hostname (default: "llm" for Docker Compose)
             port: LLM server port (default: 8080)
             temperature: Sampling temperature (0.1 for deterministic, low-creativity responses)
+            timeout: Request timeout in seconds (default: 60)
         """
         self.base_url = f"http://{host}:{port}"
         self.temperature = temperature
-        logger.info(f"Initialized LLM client: {self.base_url}, temperature={temperature}")
+        self.timeout = timeout
+        logger.info(f"Initialized LLM client: {self.base_url}, temperature={temperature}, timeout={timeout}s")
     
-    def generate(self, prompt: str, max_tokens: int = 512) -> str:
+    def generate(self, prompt: str, max_tokens: int = 512, 
+                 stop_tokens: List[str] = None) -> str:
         """
         Generate a completion from the LLM.
         
         Args:
             prompt: Input prompt
             max_tokens: Maximum tokens to generate
+            stop_tokens: List of stop tokens (default: DEFAULT_STOP_TOKENS)
             
         Returns:
             Generated text response
@@ -65,17 +75,20 @@ class LLMClient:
         Raises:
             RuntimeError: If the LLM request fails
         """
+        if stop_tokens is None:
+            stop_tokens = DEFAULT_STOP_TOKENS
+        
         url = f"{self.base_url}/completion"
         
         payload = {
             "prompt": prompt,
             "temperature": self.temperature,
             "max_tokens": max_tokens,
-            "stop": ["\n\n"],  # Stop at double newline
+            "stop": stop_tokens,
         }
         
         try:
-            response = requests.post(url, json=payload, timeout=60)
+            response = requests.post(url, json=payload, timeout=self.timeout)
             response.raise_for_status()
             
             result = response.json()
@@ -106,15 +119,19 @@ def create_boundary_prompt(page_i_text: str, page_j_text: str,
     Returns:
         Formatted prompt string
     """
+    # Truncate page texts to avoid token limits
+    page_i_truncated = page_i_text[:MAX_PAGE_TEXT_LENGTH]
+    page_j_truncated = page_j_text[:MAX_PAGE_TEXT_LENGTH]
+    
     prompt = f"""Du bist ein Experte für die Analyse von gescannten Briefdokumenten.
 
 Aufgabe: Entscheide, ob Seite {page_j_num} den Beginn eines NEUEN Briefes darstellt oder die Fortsetzung des Briefes von Seite {page_i_num} ist.
 
 SEITE {page_i_num}:
-{page_i_text[:1500]}
+{page_i_truncated}
 
 SEITE {page_j_num}:
-{page_j_text[:1500]}
+{page_j_truncated}
 
 Analysiere die beiden Seiten und gib deine Entscheidung im folgenden JSON-Format zurück (NUR JSON, kein zusätzlicher Text):
 
