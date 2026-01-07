@@ -44,7 +44,7 @@ The setup requires a llama.cpp server Docker image. You have several options:
 **CPU mode (default):**
 ```bash
 cd Source
-docker compose up --abort-on-container-exit
+docker compose --profile cpu up --abort-on-container-exit
 ```
 
 **GPU mode (requires nvidia-container-toolkit):**
@@ -59,7 +59,7 @@ The pipeline will run once and exit automatically. Both containers stop when the
 
 To remove all containers after execution:
 ```bash
-docker compose down
+docker compose down --profile cpu
 ```
 
 ### Notes
