@@ -3,10 +3,12 @@
 OCR-based text extractor for PDF documents.
 
 Extracts text from each page of a PDF using OCRmyPDF with German + English language support.
+Optionally detects letter boundaries using LLM-based classification.
 """
 
 import argparse
 import json
+import logging
 import os
 import re
 import subprocess
@@ -200,8 +202,37 @@ def main():
         default=0,
         help='Number of parallel OCR jobs (0 = use all CPU cores, default: 0)'
     )
+    parser.add_argument(
+        '--detect-boundaries',
+        action='store_true',
+        help='Enable LLM-based letter boundary detection'
+    )
+    parser.add_argument(
+        '--llm-host',
+        type=str,
+        default='llm',
+        help='LLM server hostname (default: llm)'
+    )
+    parser.add_argument(
+        '--llm-port',
+        type=int,
+        default=8080,
+        help='LLM server port (default: 8080)'
+    )
+    parser.add_argument(
+        '--llm-temperature',
+        type=float,
+        default=0.1,
+        help='LLM sampling temperature (default: 0.1 for deterministic responses)'
+    )
     
     args = parser.parse_args()
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
     input_path = Path(args.input)
     output_path = Path(args.output)
@@ -221,6 +252,21 @@ def main():
         
         print(f"Successfully extracted text from {result['page_count']} pages")
         print(f"Output written to: {output_path}")
+        
+        # Optionally detect boundaries
+        if args.detect_boundaries:
+            try:
+                from detect_boundaries import detect_and_log_boundaries
+                
+                detect_and_log_boundaries(
+                    result['pages'],
+                    llm_host=args.llm_host,
+                    llm_port=args.llm_port,
+                    temperature=args.llm_temperature
+                )
+            except ImportError as e:
+                print(f"Error: Could not import boundary detection module: {e}", file=sys.stderr)
+                sys.exit(1)
         
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

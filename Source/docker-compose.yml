@@ -64,6 +64,9 @@ services:
       - "${OUTPUT_JSON}"
       - "--jobs"
       - "${OCR_JOBS}"
+      - "--detect-boundaries"
+      - "--llm-host"
+      - "llm"
     volumes:
       # Mount Source directory as /work for file access
       - ./:/work
@@ -87,6 +90,9 @@ services:
       - "${OUTPUT_JSON}"
       - "--jobs"
       - "${OCR_JOBS}"
+      - "--detect-boundaries"
+      - "--llm-host"
+      - "llm-gpu"
     volumes:
       - ./:/work
     depends_on:
