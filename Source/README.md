@@ -65,11 +65,42 @@ docker compose down --profile cpu
 ### Notes
 
 - The LLM server runs internally and is not exposed to the host
-- Pipeline → LLM communication is not yet implemented (infrastructure only)
+- **Letter boundary detection**: The pipeline uses the LLM to detect where one letter ends and another begins in merged PDF documents
 - Missing input PDF or model file will cause startup failures
 - GPU mode requires NVIDIA GPU and nvidia-container-toolkit
 - **Model loading**: The LLM server has a 60-second startup period to allow for model loading. Larger models may take longer to load; the healthcheck will retry for up to 2 minutes before failing.
 - **Healthcheck**: Uses `curl` to check if the llama.cpp server is responding on the `/health` endpoint
+
+## Letter Boundary Detection
+
+The OCR pipeline includes LLM-based letter boundary detection to automatically identify where one letter ends and another begins in a merged PDF document.
+
+### How it works
+
+1. **OCR Extraction**: First, text is extracted from each page using OCRmyPDF
+2. **Pairwise Classification**: For each adjacent page pair (i, i+1), the LLM analyzes both pages and decides whether page i+1 starts a new letter
+3. **Grouping**: Pages are grouped into letters based on the boundary decisions
+4. **Logging**: All decisions are logged with confidence scores and reasoning
+
+### Features
+
+- **Bilingual Support**: Prompts are in German (primary) with English support
+- **Deterministic**: Low temperature (0.1) for consistent, non-creative responses
+- **Structured Output**: LLM returns JSON with:
+  - `boundary`: true if new letter, false if continuation
+  - `confidence`: 0.0 to 1.0
+  - `reason`: Short explanation for the decision
+- **Page 1 Always Starts**: The first page is always treated as the start of a letter
+
+### Output
+
+The pipeline logs:
+- Boundary decisions for each page pair
+- Confidence scores
+- Reasoning
+- Final letter groupings (which pages belong to which letter)
+
+No PDF splitting or file output is performed - the feature only logs results.
 
 ## Building the Docker Image
 
@@ -102,6 +133,10 @@ docker run --rm -v "$(pwd):/work" pdf-letter-splitter
 - `--no-rotate`: Disable automatic page rotation correction (default: enabled)
 - `--no-deskew`: Disable deskewing of pages (default: enabled)
 - `--jobs`: Number of parallel OCR jobs (0 = use all CPU cores, default: 0)
+- `--detect-boundaries`: Enable LLM-based letter boundary detection (requires LLM server)
+- `--llm-host`: LLM server hostname (default: `llm`)
+- `--llm-port`: LLM server port (default: `8080`)
+- `--llm-temperature`: LLM sampling temperature (default: `0.1` for deterministic responses)
 
 ## Output Format
 
