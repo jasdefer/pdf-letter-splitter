@@ -202,29 +202,6 @@ def main():
         default=0,
         help='Number of parallel OCR jobs (0 = use all CPU cores, default: 0)'
     )
-    parser.add_argument(
-        '--detect-boundaries',
-        action='store_true',
-        help='Enable LLM-based letter boundary detection'
-    )
-    parser.add_argument(
-        '--llm-host',
-        type=str,
-        default='llm',
-        help='LLM server hostname (default: llm)'
-    )
-    parser.add_argument(
-        '--llm-port',
-        type=int,
-        default=8080,
-        help='LLM server port (default: 8080)'
-    )
-    parser.add_argument(
-        '--llm-temperature',
-        type=float,
-        default=0.1,
-        help='LLM sampling temperature (default: 0.1 for deterministic responses)'
-    )
     
     args = parser.parse_args()
     
@@ -253,20 +230,23 @@ def main():
         print(f"Successfully extracted text from {result['page_count']} pages")
         print(f"Output written to: {output_path}")
         
-        # Optionally detect boundaries
-        if args.detect_boundaries:
-            try:
-                from detect_boundaries import detect_and_log_boundaries
-                
-                detect_and_log_boundaries(
-                    result['pages'],
-                    llm_host=args.llm_host,
-                    llm_port=args.llm_port,
-                    temperature=args.llm_temperature
-                )
-            except ImportError as e:
-                print(f"Error: Could not import boundary detection module: {e}", file=sys.stderr)
-                sys.exit(1)
+        # Always detect boundaries (LLM connection details from environment or hardcoded defaults)
+        try:
+            from detect_boundaries import detect_and_log_boundaries
+            
+            # Get LLM host from environment variable, default to 'llm' for Docker Compose CPU mode
+            llm_host = os.environ.get('LLM_HOST', 'llm')
+            llm_port = int(os.environ.get('LLM_PORT', '8080'))
+            
+            detect_and_log_boundaries(
+                result['pages'],
+                llm_host=llm_host,
+                llm_port=llm_port,
+                temperature=0.1
+            )
+        except ImportError as e:
+            print(f"Error: Could not import boundary detection module: {e}", file=sys.stderr)
+            sys.exit(1)
         
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

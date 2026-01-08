@@ -64,9 +64,9 @@ services:
       - "${OUTPUT_JSON}"
       - "--jobs"
       - "${OCR_JOBS}"
-      - "--detect-boundaries"
-      - "--llm-host"
-      - "llm"
+    environment:
+      - LLM_HOST=llm
+      - LLM_PORT=8080
     volumes:
       # Mount Source directory as /work for file access
       - ./:/work
@@ -90,9 +90,9 @@ services:
       - "${OUTPUT_JSON}"
       - "--jobs"
       - "${OCR_JOBS}"
-      - "--detect-boundaries"
-      - "--llm-host"
-      - "llm-gpu"
+    environment:
+      - LLM_HOST=llm-gpu
+      - LLM_PORT=8080
     volumes:
       - ./:/work
     depends_on:

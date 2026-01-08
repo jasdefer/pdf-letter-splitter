@@ -65,7 +65,7 @@ docker compose down --profile cpu
 ### Notes
 
 - The LLM server runs internally and is not exposed to the host
-- **Letter boundary detection**: The pipeline uses the LLM to detect where one letter ends and another begins in merged PDF documents
+- **Letter boundary detection**: The pipeline automatically uses the LLM to detect where one letter ends and another begins in merged PDF documents (always enabled)
 - Missing input PDF or model file will cause startup failures
 - GPU mode requires NVIDIA GPU and nvidia-container-toolkit
 - **Model loading**: The LLM server has a 60-second startup period to allow for model loading. Larger models may take longer to load; the healthcheck will retry for up to 2 minutes before failing.
@@ -73,7 +73,7 @@ docker compose down --profile cpu
 
 ## Letter Boundary Detection
 
-The OCR pipeline includes LLM-based letter boundary detection to automatically identify where one letter ends and another begins in a merged PDF document.
+The OCR pipeline automatically performs LLM-based letter boundary detection to identify where one letter ends and another begins in a merged PDF document. This feature is always enabled when running via Docker Compose.
 
 ### How it works
 
@@ -84,6 +84,7 @@ The OCR pipeline includes LLM-based letter boundary detection to automatically i
 
 ### Features
 
+- **Always Active**: Boundary detection runs automatically (no flag required)
 - **Bilingual Support**: Prompts are in German (primary) with English support
 - **Deterministic**: Low temperature (0.1) for consistent, non-creative responses
 - **Structured Output**: LLM returns JSON with:
@@ -133,10 +134,8 @@ docker run --rm -v "$(pwd):/work" pdf-letter-splitter
 - `--no-rotate`: Disable automatic page rotation correction (default: enabled)
 - `--no-deskew`: Disable deskewing of pages (default: enabled)
 - `--jobs`: Number of parallel OCR jobs (0 = use all CPU cores, default: 0)
-- `--detect-boundaries`: Enable LLM-based letter boundary detection (requires LLM server)
-- `--llm-host`: LLM server hostname (default: `llm`)
-- `--llm-port`: LLM server port (default: `8080`)
-- `--llm-temperature`: LLM sampling temperature (default: `0.1` for deterministic responses)
+
+**Note**: Letter boundary detection is always enabled when running via Docker Compose. The LLM connection details are configured through environment variables in `docker-compose.yml`.
 
 ## Output Format
 
