@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 
 # Constants
 MAX_PAGE_TEXT_LENGTH = 1500  # Maximum characters to send per page to LLM
-DEFAULT_LLM_TIMEOUT = 60  # Default timeout for LLM requests in seconds
-DEFAULT_STOP_TOKENS = ["}"]  # Stop after JSON closing brace
+DEFAULT_LLM_TIMEOUT = 300  # Default timeout for LLM requests in seconds
+DEFAULT_STOP_TOKENS = ["}"]
 
 
 class BoundaryDecision:
@@ -172,12 +172,12 @@ def parse_llm_response(response: str) -> BoundaryDecision:
     # Find JSON object boundaries
     start_idx = response.find('{')
     end_idx = response.rfind('}')
-    
+    logger.debug(f'response to parse: {response}')
     if start_idx == -1 or end_idx == -1:
         raise ValueError(f"No JSON object found in response: {response}")
     
     json_str = response[start_idx:end_idx+1]
-    
+    logger.info(f"Extracted JSON string: {json_str}")
     try:
         data = json.loads(json_str)
     except json.JSONDecodeError as e:
@@ -304,7 +304,6 @@ def group_pages_into_letters(pages: List[Dict[str, Any]],
     
     return letters
 
-
 def detect_and_log_boundaries(pages: List[Dict[str, Any]], 
                               llm_host: str = "llm", 
                               llm_port: int = 8080,
@@ -330,7 +329,7 @@ def detect_and_log_boundaries(pages: List[Dict[str, Any]],
     
     # Initialize LLM client
     llm_client = LLMClient(host=llm_host, port=llm_port, temperature=temperature)
-    
+
     # Detect boundaries
     decisions = detect_boundaries(pages, llm_client)
     
