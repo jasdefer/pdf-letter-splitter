@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_PAGE_TEXT_LENGTH = 1500  # Maximum characters to send per page to LLM
 DEFAULT_LLM_TIMEOUT = 60  # Default timeout for LLM requests in seconds
-DEFAULT_STOP_TOKENS = ["\n\n"]  # Stop generation at double newline
+DEFAULT_STOP_TOKENS = ["}"]  # Stop after JSON closing brace
 
 
 class BoundaryDecision:
@@ -43,7 +43,7 @@ class BoundaryDecision:
 class LLMClient:
     """Client for communicating with llama.cpp server."""
     
-    def __init__(self, host: str = "llm", port: int = 8080, temperature: float = 0.1, 
+    def __init__(self, host: str = "llm", port: int = 8080, temperature: float = 0.0, 
                  timeout: int = DEFAULT_LLM_TIMEOUT):
         """
         Initialize the LLM client.
@@ -51,7 +51,7 @@ class LLMClient:
         Args:
             host: LLM server hostname (default: "llm" for Docker Compose)
             port: LLM server port (default: 8080)
-            temperature: Sampling temperature (0.1 for deterministic, low-creativity responses)
+            temperature: Sampling temperature (0.0 for fully deterministic responses)
             timeout: Request timeout in seconds (default: 60)
         """
         self.base_url = f"http://{host}:{port}"
@@ -66,7 +66,7 @@ class LLMClient:
         
         Args:
             prompt: Input prompt
-            max_tokens: Maximum tokens to generate
+            max_tokens: Maximum tokens to generate (mapped to n_predict for llama.cpp)
             stop_tokens: List of stop tokens (default: DEFAULT_STOP_TOKENS)
             
         Returns:
@@ -83,7 +83,7 @@ class LLMClient:
         payload = {
             "prompt": prompt,
             "temperature": self.temperature,
-            "max_tokens": max_tokens,
+            "n_predict": max_tokens,  # llama.cpp uses n_predict, not max_tokens
             "stop": stop_tokens,
         }
         
@@ -136,8 +136,8 @@ SEITE {page_j_num}:
 Analysiere die beiden Seiten und gib deine Entscheidung im folgenden JSON-Format zurück (NUR JSON, kein zusätzlicher Text):
 
 {{
-  "boundary": true oder false,
-  "confidence": 0.0 bis 1.0,
+  "boundary": true,
+  "confidence": 0.95,
   "reason": "kurze Begründung"
 }}
 
@@ -308,7 +308,7 @@ def group_pages_into_letters(pages: List[Dict[str, Any]],
 def detect_and_log_boundaries(pages: List[Dict[str, Any]], 
                               llm_host: str = "llm", 
                               llm_port: int = 8080,
-                              temperature: float = 0.1) -> None:
+                              temperature: float = 0.0) -> None:
     """
     Main entry point: detect boundaries and log results.
     
@@ -322,7 +322,7 @@ def detect_and_log_boundaries(pages: List[Dict[str, Any]],
         pages: List of page dictionaries from OCR extraction
         llm_host: LLM server hostname
         llm_port: LLM server port
-        temperature: LLM sampling temperature (default: 0.1 for deterministic)
+        temperature: LLM sampling temperature (default: 0.0 for fully deterministic)
     """
     logger.info("=" * 80)
     logger.info("LETTER BOUNDARY DETECTION")

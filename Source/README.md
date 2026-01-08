@@ -86,7 +86,7 @@ The OCR pipeline automatically performs LLM-based letter boundary detection to i
 
 - **Always Active**: Boundary detection runs automatically (no flag required)
 - **Bilingual Support**: Prompts are in German (primary) with English support
-- **Deterministic**: Low temperature (0.1) for consistent, non-creative responses
+- **Fully Deterministic**: Temperature set to 0.0 for completely deterministic responses
 - **Structured Output**: LLM returns JSON with:
   - `boundary`: true if new letter, false if continuation
   - `confidence`: 0.0 to 1.0

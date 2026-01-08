@@ -242,7 +242,7 @@ def main():
                 result['pages'],
                 llm_host=llm_host,
                 llm_port=llm_port,
-                temperature=0.1
+                temperature=0.0
             )
         except ImportError as e:
             print(f"Error: Could not import boundary detection module: {e}", file=sys.stderr)

@@ -53,7 +53,7 @@ class TestLLMClient(unittest.TestCase):
         client = LLMClient()
         
         self.assertEqual(client.base_url, "http://llm:8080")
-        self.assertEqual(client.temperature, 0.1)
+        self.assertEqual(client.temperature, 0.0)
     
     def test_custom_initialization(self):
         """Test LLMClient with custom parameters."""
