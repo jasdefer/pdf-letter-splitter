@@ -87,11 +87,13 @@ The OCR pipeline automatically performs LLM-based letter boundary detection to i
 - **Always Active**: Boundary detection runs automatically (no flag required)
 - **Bilingual Support**: Prompts are in German (primary) with English support
 - **Fully Deterministic**: Temperature set to 0.0 for completely deterministic responses
-- **Structured Output**: LLM returns JSON with:
+- **Structured JSON Output**: Uses llama.cpp's OpenAI-compatible `/v1/chat/completions` endpoint with `response_format: json_object` for guaranteed valid JSON responses
+- **Response Format**: LLM returns JSON with:
   - `boundary`: true if new letter, false if continuation
   - `confidence`: 0.0 to 1.0
   - `reason`: Short explanation for the decision
 - **Page 1 Always Starts**: The first page is always treated as the start of a letter
+- **Robust Parsing**: Direct JSON parsing without bracket-based extraction, reducing edge cases
 
 ### Output
 

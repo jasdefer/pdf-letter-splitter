@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_PAGE_TEXT_LENGTH = 1500  # Maximum characters to send per page to LLM
 DEFAULT_LLM_TIMEOUT = 300  # Default timeout for LLM requests in seconds
-DEFAULT_STOP_TOKENS = ["}"]
 
 
 class BoundaryDecision:
@@ -59,32 +58,34 @@ class LLMClient:
         self.timeout = timeout
         logger.info(f"Initialized LLM client: {self.base_url}, temperature={temperature}, timeout={timeout}s")
     
-    def generate(self, prompt: str, max_tokens: int = 512, 
-                 stop_tokens: List[str] = None) -> str:
+    def generate(self, prompt: str, max_tokens: int = 512) -> str:
         """
-        Generate a completion from the LLM.
+        Generate a completion from the LLM using OpenAI-compatible chat endpoint.
         
         Args:
             prompt: Input prompt
-            max_tokens: Maximum tokens to generate (mapped to n_predict for llama.cpp)
-            stop_tokens: List of stop tokens (default: DEFAULT_STOP_TOKENS)
+            max_tokens: Maximum tokens to generate
             
         Returns:
-            Generated text response
+            Generated JSON response as string
             
         Raises:
             RuntimeError: If the LLM request fails
         """
-        if stop_tokens is None:
-            stop_tokens = DEFAULT_STOP_TOKENS
-        
-        url = f"{self.base_url}/completion"
+        url = f"{self.base_url}/v1/chat/completions"
         
         payload = {
-            "prompt": prompt,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
             "temperature": self.temperature,
-            "n_predict": max_tokens,  # llama.cpp uses n_predict, not max_tokens
-            "stop": stop_tokens,
+            "max_tokens": max_tokens,
+            "response_format": {
+                "type": "json_object"
+            }
         }
         
         try:
@@ -92,10 +93,14 @@ class LLMClient:
             response.raise_for_status()
             
             result = response.json()
-            content = result.get("content", "")
             
-            logger.debug(f"LLM response: {content[:200]}...")
-            return content
+            # Extract content from OpenAI-compatible response format
+            if "choices" in result and len(result["choices"]) > 0:
+                content = result["choices"][0]["message"]["content"]
+                logger.debug(f"LLM response: {content[:200]}...")
+                return content
+            else:
+                raise RuntimeError(f"Unexpected response format: {result}")
             
         except requests.exceptions.RequestException as e:
             logger.error(f"LLM request failed: {e}")
@@ -157,7 +162,7 @@ def parse_llm_response(response: str) -> BoundaryDecision:
     Parse the LLM's JSON response into a BoundaryDecision.
     
     Args:
-        response: Raw LLM response text
+        response: Raw LLM response text (should be valid JSON)
         
     Returns:
         Parsed BoundaryDecision
@@ -165,23 +170,12 @@ def parse_llm_response(response: str) -> BoundaryDecision:
     Raises:
         ValueError: If response cannot be parsed as valid JSON or is missing required fields
     """
-    # Try to extract JSON from the response
-    # Sometimes the LLM might include extra text, so we look for the JSON object
     response = response.strip()
     
-    # Find JSON object boundaries
-    start_idx = response.find('{')
-    end_idx = response.rfind('}')
-    logger.debug(f'response to parse: {response}')
-    if start_idx == -1 or end_idx == -1:
-        raise ValueError(f"No JSON object found in response: {response}")
-    
-    json_str = response[start_idx:end_idx+1]
-    logger.info(f"Extracted JSON string: {json_str}")
     try:
-        data = json.loads(json_str)
+        data = json.loads(response)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in response: {e}")
+        raise ValueError(f"Invalid JSON in response: {e}. Response: {response}")
     
     # Validate required fields
     if "boundary" not in data:

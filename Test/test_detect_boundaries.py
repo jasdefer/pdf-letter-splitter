@@ -65,9 +65,17 @@ class TestLLMClient(unittest.TestCase):
     @patch('detect_boundaries.requests.post')
     def test_generate_success(self, mock_post):
         """Test successful LLM generation."""
-        # Mock successful response
+        # Mock successful response with OpenAI-compatible format
         mock_response = Mock()
-        mock_response.json.return_value = {"content": "Test response"}
+        mock_response.json.return_value = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "Test response"
+                    }
+                }
+            ]
+        }
         mock_response.raise_for_status = Mock()
         mock_post.return_value = mock_response
         
@@ -136,14 +144,6 @@ class TestParseLLMResponse(unittest.TestCase):
         self.assertTrue(decision.is_boundary)
         self.assertEqual(decision.confidence, 0.95)
         self.assertEqual(decision.reason, "New sender")
-    
-    def test_parse_json_with_extra_text(self):
-        """Test parsing JSON with surrounding text."""
-        response = 'Here is my answer: {"boundary": false, "confidence": 0.8, "reason": "Continuation"} Done.'
-        decision = parse_llm_response(response)
-        
-        self.assertFalse(decision.is_boundary)
-        self.assertEqual(decision.confidence, 0.8)
     
     def test_parse_missing_field(self):
         """Test that missing fields raise ValueError."""
