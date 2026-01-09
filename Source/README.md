@@ -1,10 +1,19 @@
-# OCR Text Extractor
+# PDF Letter Splitter
 
-This directory contains a Dockerized Python script for extracting text from scanned PDF documents using OCR.
+This directory contains a Dockerized pipeline for processing PDFs with multiple letters: extracting text via OCR and segmenting into individual letters with metadata extraction.
+
+## What This Pipeline Does
+
+The complete workflow includes:
+
+1. **OCR Text Extraction** - Extracts text from scanned PDF pages using OCRmyPDF with German and English support
+2. **Letter Segmentation** - Identifies letter boundaries using header scoring heuristics
+3. **Metadata Extraction** - Extracts date, sender, and topic from each letter's first page
+4. **Structured Output** - Returns JSON with complete letter information
 
 ## Docker Compose Setup (Recommended)
 
-The easiest way to run the OCR pipeline is using Docker Compose, which automatically manages both the OCR pipeline and a local LLM server.
+The easiest way to run the complete pipeline is using Docker Compose, which automatically manages both the OCR pipeline and a local LLM server.
 
 ### Prerequisites
 
@@ -13,42 +22,82 @@ The setup requires a llama.cpp server Docker image. You have several options:
 1. **Build from llama.cpp source**: Follow [llama.cpp Docker documentation](https://github.com/ggerganov/llama.cpp/tree/master/examples/server#docker) to build the image
 2. **Use a pre-built image**: If available, pull from `ghcr.io/ggerganov/llama.cpp:server`
 3. **Tag your own build**: If you build llama.cpp locally, tag it appropriately:
+   
+   **Bash:**
    ```bash
+   docker tag your-llama-cpp-build ghcr.io/ggerganov/llama.cpp:server
+   ```
+   
+   **PowerShell:**
+   ```powershell
    docker tag your-llama-cpp-build ghcr.io/ggerganov/llama.cpp:server
    ```
 
 ### Setup
 
 1. Copy the example environment file and edit it:
+   
+   **Bash:**
    ```bash
    cd Source
    cp .env.example .env
    ```
+   
+   **PowerShell:**
+   ```powershell
+   cd Source
+   Copy-Item .env.example .env
+   ```
 
 2. Edit `.env` to configure:
    - `INPUT_PDF`: Your input PDF filename (must exist in Source/)
-   - `OUTPUT_JSON`: Output JSON filename (debug only)
+   - `OUTPUT_JSON`: Output JSON filename with complete results (default: results.json)
    - `MODEL_FILE`: LLM model filename (must exist in Source/)
    - `OCR_JOBS`: Number of parallel OCR jobs (0 = use all CPU cores)
    - `COMPOSE_PROFILES`: Use `cpu` (default) or `gpu`
 
 3. Place your input PDF and model file in the Source/ directory:
+   
+   **Bash:**
    ```bash
    # Example
    cp /path/to/your/document.pdf Source/input.pdf
    cp /path/to/your/model.gguf Source/model.gguf
    ```
+   
+   **PowerShell:**
+   ```powershell
+   # Example
+   Copy-Item C:\path\to\your\document.pdf Source\input.pdf
+   Copy-Item C:\path\to\your\model.gguf Source\model.gguf
+   ```
 
 ### Running
 
 **CPU mode (default):**
+
+**Bash:**
 ```bash
 cd Source
 docker compose --profile cpu up --abort-on-container-exit
 ```
 
+**PowerShell:**
+```powershell
+cd Source
+docker compose --profile cpu up --abort-on-container-exit
+```
+
 **GPU mode (requires nvidia-container-toolkit):**
+
+**Bash:**
 ```bash
+cd Source
+docker compose --profile gpu up --abort-on-container-exit
+```
+
+**PowerShell:**
+```powershell
 cd Source
 docker compose --profile gpu up --abort-on-container-exit
 ```
@@ -58,8 +107,43 @@ The pipeline will run once and exit automatically. Both containers stop when the
 ### Cleanup
 
 To remove all containers after execution:
+
+**Bash:**
 ```bash
 docker compose down --profile cpu
+```
+
+**PowerShell:**
+```powershell
+docker compose down --profile cpu
+```
+
+### Output Format
+
+The pipeline generates a JSON file with the following structure:
+
+```json
+{
+  "input_file": "input.pdf",
+  "total_pages": 5,
+  "letters_found": 2,
+  "letters": [
+    {
+      "date": "2026-01-15",
+      "sender": "Finanzamt München",
+      "topic": "Steuerbescheid 2025",
+      "page_count": 2,
+      "start_page": 1
+    },
+    {
+      "date": "2026-01-20",
+      "sender": "TechCorp GmbH",
+      "topic": "Annual Report 2025",
+      "page_count": 3,
+      "start_page": 3
+    }
+  ]
+}
 ```
 
 ### Notes
@@ -73,60 +157,78 @@ docker compose down --profile cpu
 
 ## Building the Docker Image
 
+**Bash:**
 ```bash
 cd Source
 docker build -t pdf-letter-splitter .
 ```
 
-## Usage
+**PowerShell:**
+```powershell
+cd Source
+docker build -t pdf-letter-splitter .
+```
+
+## Direct Docker Usage (Alternative to Docker Compose)
 
 ### Basic Usage (with bind mount)
 
+Process a PDF and output complete results with letter segmentation:
+
+**Bash:**
 ```bash
 docker run --rm -v "$(pwd):/work" pdf-letter-splitter \
-  -i Test/test.pdf -o Test/output.json
+  -i input.pdf -o results.json
 ```
 
-### Using Default Arguments
+**PowerShell:**
+```powershell
+docker run --rm -v "${PWD}:/work" pdf-letter-splitter `
+  -i input.pdf -o results.json
+```
 
-By default, the script looks for `input.pdf` and writes to `output.json`:
+### Verbose Output
 
+Get detailed progress information:
+
+**Bash:**
 ```bash
-docker run --rm -v "$(pwd):/work" pdf-letter-splitter
+docker run --rm -v "$(pwd):/work" pdf-letter-splitter \
+  -i input.pdf -o results.json --verbose
+```
+
+**PowerShell:**
+```powershell
+docker run --rm -v "${PWD}:/work" pdf-letter-splitter `
+  -i input.pdf -o results.json --verbose
 ```
 
 ### Command-Line Arguments
 
-- `-i, --input`: Input PDF file path (default: `input.pdf`)
+The unified pipeline (`process_letters.py`) supports:
+
+- `-i, --input`: Input PDF file path (required)
 - `-o, --output`: Output JSON file path (default: `output.json`)
 - `--no-rotate`: Disable automatic page rotation correction (default: enabled)
 - `--no-deskew`: Disable deskewing of pages (default: enabled)
 - `--jobs`: Number of parallel OCR jobs (0 = use all CPU cores, default: 0)
+- `--verbose`: Print detailed progress information
 
-## Output Format
+## Pipeline Components
 
-The script generates a JSON file with the following structure:
+The Docker container includes three Python modules that work together:
 
-```json
-{
-  "page_count": 4,
-  "pages": [
-    {
-      "page_number": 1,
-      "text": "Extracted text from page 1..."
-    },
-    {
-      "page_number": 2,
-      "text": "Extracted text from page 2..."
-    }
-  ]
-}
-```
+1. **`extract_text.py`** - OCR text extraction from PDF pages
+2. **`analyze_letters.py`** - Letter segmentation and metadata extraction
+3. **`process_letters.py`** - Unified entry point orchestrating the complete workflow
 
 ## Features
 
+- **Complete Workflow**: PDF → OCR → Segmentation → Letter Metadata in one command
 - **OCR Language Support**: German and English (`deu+eng`)
 - **OCRmyPDF Integration**: Uses ocrmypdf to create searchable PDFs with forced OCR on all pages
+- **Letter Segmentation**: Automatic boundary detection using header scoring heuristics
+- **Metadata Extraction**: Extracts date, sender, and topic from each letter
 - **Automatic Corrections**: 
   - Page rotation correction (can be disabled with `--no-rotate`)
   - Deskewing of skewed pages (can be disabled with `--no-deskew`)
@@ -136,16 +238,22 @@ The script generates a JSON file with the following structure:
   - Collapses multiple spaces/tabs into single space
   - Reduces excessive blank lines
   - Trims leading/trailing whitespace per page
-- **Robust Text Extraction**: Handles cases where text extraction returns None
-- **Error Handling**: Exits with non-zero code on failures
+- **Robust Error Handling**: Exits with non-zero code on failures
 
 ## Running Tests
 
-Tests are located in the `Test/` directory and can be run using pytest:
+Tests are located in the `Test/` directory and can be run using unittest:
 
+**Bash:**
 ```bash
 docker run --rm --entrypoint bash -v "$(pwd):/work" pdf-letter-splitter \
-  -c "pip install pytest && cd /work && python3 -m pytest Test/test_ocr_extract.py -v"
+  -c "cd /work && python3 -m unittest discover -s Test -p 'test_*.py' -v"
+```
+
+**PowerShell:**
+```powershell
+docker run --rm --entrypoint bash -v "${PWD}:/work" pdf-letter-splitter `
+  -c "cd /work && python3 -m unittest discover -s Test -p 'test_*.py' -v"
 ```
 
 ## Requirements
@@ -155,6 +263,7 @@ The Docker image includes:
 - OCRmyPDF with Tesseract OCR
 - German and English language packs for Tesseract
 - Python package: pypdf
+- All three pipeline modules (extract_text.py, analyze_letters.py, process_letters.py)
 
 ## Complete Letter Processing Pipeline
 

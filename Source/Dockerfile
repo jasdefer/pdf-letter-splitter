@@ -11,18 +11,23 @@ RUN apt-get update && apt-get install -y \
     tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the extraction script
+# Copy all Python scripts for the complete pipeline
 COPY extract_text.py /app/extract_text.py
+COPY analyze_letters.py /app/analyze_letters.py
+COPY process_letters.py /app/process_letters.py
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pythonhosted.org \
     pypdf
 
-# Make script executable
-RUN chmod +x /app/extract_text.py
+# Make scripts executable
+RUN chmod +x /app/extract_text.py /app/analyze_letters.py /app/process_letters.py
 
-# Set the script as the entrypoint
-ENTRYPOINT ["python3", "/app/extract_text.py"]
+# Add /app to PYTHONPATH so modules can import each other
+ENV PYTHONPATH=/app:$PYTHONPATH
+
+# Set the unified entry point as the entrypoint
+ENTRYPOINT ["python3", "/app/process_letters.py"]
 
 # Default command (can be overridden)
 CMD []
