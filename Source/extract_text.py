@@ -15,12 +15,12 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any
 
+# Lazy import - check for pypdf only when needed
+pypdf = None
 try:
     import pypdf
-except ImportError as e:
-    print(f"Error: Required package not found: {e}", file=sys.stderr)
-    print("Install with: pip install pypdf", file=sys.stderr)
-    sys.exit(1)
+except ImportError:
+    pass  # Will be handled when extract_text_from_pdf is called
 
 
 def normalize_whitespace(text: str) -> str:
@@ -84,7 +84,12 @@ def extract_text_from_pdf(input_path: Path, lang: str = 'deu+eng',
         FileNotFoundError: If input file doesn't exist
         RuntimeError: For OCR processing errors
         ValueError: For invalid PDF files
+        ImportError: If pypdf package is not installed
     """
+    # Check for required pypdf package
+    if pypdf is None:
+        raise ImportError("pypdf package is required. Install with: pip install pypdf")
+    
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
     
@@ -222,6 +227,9 @@ def main():
         print(f"Successfully extracted text from {result['page_count']} pages")
         print(f"Output written to: {output_path}")
         
+    except ImportError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

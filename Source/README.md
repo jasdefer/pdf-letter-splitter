@@ -156,6 +156,79 @@ The Docker image includes:
 - German and English language packs for Tesseract
 - Python package: pypdf
 
+## Complete Letter Processing Pipeline
+
+The `process_letters.py` script provides a unified entry point that combines OCR text extraction and letter segmentation into one workflow.
+
+### Quick Start
+
+```bash
+# Process a PDF with multiple letters
+python process_letters.py -i input.pdf -o results.json
+
+# With verbose output
+python process_letters.py -i input.pdf -o results.json --verbose
+
+# Customize OCR options
+python process_letters.py -i input.pdf -o results.json --no-rotate --jobs 4
+```
+
+### Output Format
+
+The complete pipeline outputs a JSON file with the following structure:
+
+```json
+{
+  "input_file": "letters.pdf",
+  "total_pages": 5,
+  "letters_found": 2,
+  "letters": [
+    {
+      "date": "2026-01-15",
+      "sender": "Finanzamt München",
+      "topic": "Steuerbescheid 2025",
+      "page_count": 2,
+      "start_page": 1
+    },
+    {
+      "date": "2026-01-20",
+      "sender": "TechCorp GmbH",
+      "topic": "Annual Report 2025",
+      "page_count": 3,
+      "start_page": 3
+    }
+  ]
+}
+```
+
+### Command-Line Options
+
+- `-i, --input`: Input PDF file path (required)
+- `-o, --output`: Output JSON file path (default: output.json)
+- `--no-rotate`: Disable automatic page rotation correction
+- `--no-deskew`: Disable deskewing of pages
+- `--jobs`: Number of parallel OCR jobs (0 = use all CPU cores)
+- `--verbose`: Print detailed progress information
+
+### Python API
+
+```python
+from process_letters import process_pdf_letters
+from pathlib import Path
+
+# Process the PDF
+result = process_pdf_letters(
+    Path('input.pdf'),
+    rotate=True,
+    deskew=True,
+    jobs=0
+)
+
+print(f"Found {result['letters_found']} letters in {result['total_pages']} pages")
+for letter in result['letters']:
+    print(f"Letter from {letter['sender']}: {letter['topic']}")
+```
+
 ## Letter Segmentation and Analysis
 
 The `analyze_letters.py` module provides rule-based letter segmentation and metadata extraction from OCR text output.
@@ -170,7 +243,20 @@ The `analyze_letters.py` module provides rule-based letter segmentation and meta
 
 ### Usage
 
-#### As a Python Module
+#### Recommended: Use the Unified Pipeline
+
+For most use cases, use `process_letters.py` which combines both steps:
+
+```python
+from process_letters import process_pdf_letters
+
+result = process_pdf_letters('input.pdf')
+# Returns complete results with letters and metadata
+```
+
+#### As Separate Python Modules
+
+For advanced use cases, you can use the modules independently:
 
 ```python
 from extract_text import extract_text_from_pdf
