@@ -15,7 +15,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 # Constants
-MAX_PAGE_TEXT_LENGTH = 1500  # Maximum characters to send per page to LLM
+MAX_PAGE_TEXT_LENGTH = 350  # Maximum characters to send per page to LLM
 DEFAULT_LLM_TIMEOUT = 300  # Default timeout for LLM requests in seconds
 
 
@@ -83,11 +83,12 @@ class LLMClient:
             ],
             "temperature": self.temperature,
             "max_tokens": max_tokens,
+            "cache_prompt": False,
             "response_format": {
                 "type": "json_object"
             }
         }
-        
+        logger.debug(f"Sending LLM request to {url} with payload: {payload}")
         try:
             response = requests.post(url, json=payload, timeout=self.timeout)
             response.raise_for_status()
@@ -128,9 +129,7 @@ def create_boundary_prompt(page_i_text: str, page_j_text: str,
     page_i_truncated = page_i_text[:MAX_PAGE_TEXT_LENGTH]
     page_j_truncated = page_j_text[:MAX_PAGE_TEXT_LENGTH]
     
-    prompt = f"""Du bist ein Experte für die Analyse von gescannten Briefdokumenten.
-
-Aufgabe: Entscheide, ob Seite {page_j_num} den Beginn eines NEUEN Briefes darstellt oder die Fortsetzung des Briefes von Seite {page_i_num} ist.
+    prompt = f"""Aufgabe: Entscheide, ob Seite {page_j_num} den Beginn eines NEUEN Briefes darstellt oder die Fortsetzung des Briefes von Seite {page_i_num} ist.
 
 SEITE {page_i_num}:
 {page_i_truncated}
@@ -138,21 +137,12 @@ SEITE {page_i_num}:
 SEITE {page_j_num}:
 {page_j_truncated}
 
-Analysiere die beiden Seiten und gib deine Entscheidung im folgenden JSON-Format zurück (NUR JSON, kein zusätzlicher Text):
-
+Gib deine Entscheidung im folgenden JSON-Format zurück:
 {{
   "boundary": true,
   "confidence": 0.95,
   "reason": "kurze Begründung"
-}}
-
-Hinweise:
-- Ein neuer Brief beginnt typischerweise mit Absender, Datum, Empfänger, Betreff
-- Eine Fortsetzung hat fortlaufenden Text oder eine neue Seitennummer
-- "boundary": true bedeutet, dass Seite {page_j_num} ein NEUER Brief ist
-- "boundary": false bedeutet, dass Seite {page_j_num} die FORTSETZUNG von Seite {page_i_num} ist
-
-Antwort (nur JSON):"""
+}}"""
     
     return prompt
 
@@ -242,6 +232,7 @@ def detect_boundaries(pages: List[Dict[str, Any]], llm_client: LLMClient) -> Lis
         # Query LLM
         try:
             response = llm_client.generate(prompt)
+            logger.debug(f"LLM raw response for pages {page_i_num}-{page_j_num}: {response}")
             decision = parse_llm_response(response)
             
             logger.info(f"  Page {page_j_num}: boundary={decision.is_boundary}, "
