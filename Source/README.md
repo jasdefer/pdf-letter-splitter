@@ -155,3 +155,90 @@ The Docker image includes:
 - OCRmyPDF with Tesseract OCR
 - German and English language packs for Tesseract
 - Python package: pypdf
+
+## Letter Segmentation and Analysis
+
+The `analyze_letters.py` module provides rule-based letter segmentation and metadata extraction from OCR text output.
+
+### Features
+
+- **Automatic Letter Detection**: Identifies letter boundaries using header scoring heuristics
+- **Metadata Extraction**: Extracts date, sender, and topic from each letter
+- **Multi-format Date Support**: Handles ISO, European (DD.MM.YYYY), US (MM/DD/YYYY), and named month formats in German and English
+- **Organization Recognition**: Identifies companies (GmbH, Inc, Ltd, etc.) and government offices
+- **Bilingual Support**: Works with both German and English correspondence
+
+### Usage
+
+#### As a Python Module
+
+```python
+from extract_text import extract_text_from_pdf
+from analyze_letters import analyze_documents
+
+# Extract text from PDF
+result = extract_text_from_pdf('input.pdf')
+ocr_pages = [page['text'] for page in result['pages']]
+
+# Analyze and segment letters
+letters = analyze_documents(ocr_pages)
+
+for letter in letters:
+    print(f"Letter starting at page {letter['start_page']}:")
+    print(f"  Date: {letter['date']}")
+    print(f"  Sender: {letter['sender']}")
+    print(f"  Topic: {letter['topic']}")
+    print(f"  Pages: {letter['page_count']}")
+```
+
+#### Command-Line Usage
+
+```bash
+python3 analyze_letters.py input.pdf > output.json
+```
+
+### Output Format
+
+The `analyze_documents()` function returns a list of dictionaries:
+
+```json
+[
+  {
+    "date": "2026-01-15",
+    "sender": "Finanzamt München",
+    "topic": "Steuerbescheid 2025",
+    "page_count": 2,
+    "start_page": 1
+  },
+  {
+    "date": "2026-01-20",
+    "sender": "TechCorp GmbH",
+    "topic": "Annual Report 2025",
+    "page_count": 3,
+    "start_page": 3
+  }
+]
+```
+
+### How It Works
+
+1. **Header Scoring**: Each page receives a score based on indicators like:
+   - Date in top 15% of page (+30 points)
+   - Sender/organization name (+20 points)
+   - Subject line (+15 points)
+   - Formal salutation (+15 points)
+   - "Page 1 of X" markers (+25 points)
+
+2. **Boundary Detection**: Pages with scores ≥40 are considered new letter starts
+
+3. **Metadata Extraction**: The first page of each letter is analyzed using specialized regex patterns and heuristics
+
+### Testing
+
+```bash
+# Run unit tests
+python3 -m unittest Test.test_analyze_letters -v
+
+# Run integration test
+python3 Test/test_integration.py
+```
