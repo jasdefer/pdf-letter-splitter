@@ -7,7 +7,8 @@ and extract metadata (date, sender, topic) from formal correspondence.
 """
 
 import re
-from typing import Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 def find_date(page_text: str) -> Optional[str]:
@@ -58,11 +59,31 @@ def find_date(page_text: str) -> Optional[str]:
         match = re.search(pattern, top_section, re.IGNORECASE)
         if match:
             try:
-                return converter(match)
+                date_str = converter(match)
+                # Validate the date is actually valid
+                if _is_valid_date(date_str):
+                    return date_str
             except (ValueError, IndexError):
                 continue
     
     return None
+
+
+def _is_valid_date(date_str: str) -> bool:
+    """
+    Validate that a date string in YYYY-MM-DD format represents a real date.
+    
+    Args:
+        date_str: Date string in YYYY-MM-DD format
+        
+    Returns:
+        True if the date is valid, False otherwise
+    """
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
 
 
 def _convert_german_month_date(day: str, month_name: str, year: str) -> str:
@@ -263,7 +284,7 @@ def find_topic(page_text: str) -> Optional[str]:
             continue
         
         # Skip lines that look like addresses, but only the first 2
-        if sender_lines_skipped < 2 and (re.search(r'\b\d{5}\b', line) or re.search(r'\bstraße\b', line, re.IGNORECASE)):
+        if sender_lines_skipped < 2 and re.search(r'\b\d{5}\b|\bstraße\b', line, re.IGNORECASE):
             sender_lines_skipped += 1
             continue
         
@@ -376,7 +397,7 @@ def _calculate_header_score(page_text: str) -> int:
     return score
 
 
-def analyze_documents(ocr_pages: list[str]) -> list[dict]:
+def analyze_documents(ocr_pages: List[str]) -> List[Dict[str, Any]]:
     """
     Main orchestrator function to segment and analyze letters from OCR pages.
     
