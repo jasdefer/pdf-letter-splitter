@@ -17,13 +17,15 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
+# Import dependencies - will be checked when functions are called
+extract_text_from_pdf = None
+analyze_documents = None
+
 try:
     from extract_text import extract_text_from_pdf
     from analyze_letters import analyze_documents
-except ImportError as e:
-    print(f"Error: Required module not found: {e}", file=sys.stderr)
-    print("Make sure extract_text.py and analyze_letters.py are in the same directory", file=sys.stderr)
-    sys.exit(1)
+except ImportError:
+    pass  # Will be handled when functions are called
 
 
 def process_pdf_letters(
@@ -55,7 +57,15 @@ def process_pdf_letters(
         FileNotFoundError: If input file doesn't exist
         RuntimeError: For OCR processing errors
         ValueError: For invalid PDF files
+        ImportError: If required modules are not available
     """
+    # Check for required modules
+    if extract_text_from_pdf is None or analyze_documents is None:
+        raise ImportError(
+            "Required modules not found. Make sure extract_text.py and analyze_letters.py "
+            "are in the same directory."
+        )
+    
     # Step 1: Extract text from PDF using OCR
     ocr_result = extract_text_from_pdf(
         input_path,
@@ -175,6 +185,9 @@ Examples:
                 print(f"  Sender: {letter['sender'] or 'Not found'}", file=sys.stderr)
                 print(f"  Topic: {letter['topic'] or 'Not found'}", file=sys.stderr)
         
+    except ImportError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     except FileNotFoundError as e:
         print(f"Error: Input file not found: {e}", file=sys.stderr)
         sys.exit(1)
