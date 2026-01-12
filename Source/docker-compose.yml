@@ -61,7 +61,7 @@ services:
       - "-i"
       - "${INPUT_PDF}"
       - "-o"
-      - "${OUTPUT_JSON}"
+      - "${OUTPUT_TSV}"
       - "--jobs"
       - "${OCR_JOBS}"
     volumes:
@@ -84,7 +84,7 @@ services:
       - "-i"
       - "${INPUT_PDF}"
       - "-o"
-      - "${OUTPUT_JSON}"
+      - "${OUTPUT_TSV}"
       - "--jobs"
       - "${OCR_JOBS}"
     volumes:
