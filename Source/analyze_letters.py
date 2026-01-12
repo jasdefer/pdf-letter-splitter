@@ -334,44 +334,87 @@ def _clean_topic(topic: str) -> str:
     return topic
 
 
-def _calculate_header_score(page_text: str) -> int:
+def _calculate_header_score(page_text: str) -> Dict[str, Any]:
     """
     Calculate a "header score" to determine if a page is the start of a new letter.
     
-    Higher scores indicate stronger evidence of being a letter's first page.
+    Returns detailed information about each scoring component to help with
+    fine-tuning and debugging.
     
     Args:
         page_text: OCR text from a single page
         
     Returns:
-        Integer score (0-100+)
+        Dictionary containing:
+            - total_score: int - Overall score (0-100+)
+            - date: dict - {found: bool, value: str|None, score: int}
+            - sender: dict - {found: bool, value: str|None, score: int}
+            - topic: dict - {found: bool, value: str|None, score: int}
+            - salutation: dict - {found: bool, value: str|None, score: int}
+            - page_marker: dict - {found: bool, value: str|None, score: int}
+            - address: dict - {found: bool, value: str|None, score: int}
     """
     if not page_text:
-        return 0
+        return {
+            'total_score': 0,
+            'date': {'found': False, 'value': None, 'score': 0},
+            'sender': {'found': False, 'value': None, 'score': 0},
+            'topic': {'found': False, 'value': None, 'score': 0},
+            'salutation': {'found': False, 'value': None, 'score': 0},
+            'page_marker': {'found': False, 'value': None, 'score': 0},
+            'address': {'found': False, 'value': None, 'score': 0}
+        }
     
-    score = 0
+    total_score = 0
     lines = page_text.split('\n')
     top_section = '\n'.join(lines[:min(25, len(lines))])
     
-    # Date in top section: +30 points
-    if find_date(page_text):
-        score += 30
+    # Component 1: Date in top section (+30 points)
+    date_value = find_date(page_text)
+    date_info = {
+        'found': date_value is not None,
+        'value': date_value,
+        'score': 30 if date_value else 0
+    }
+    total_score += date_info['score']
     
-    # Sender/organization found: +20 points
-    if find_sender(page_text):
-        score += 20
+    # Component 2: Sender/organization found (+20 points)
+    sender_value = find_sender(page_text)
+    sender_info = {
+        'found': sender_value is not None,
+        'value': sender_value,
+        'score': 20 if sender_value else 0
+    }
+    total_score += sender_info['score']
     
-    # Subject line found: +15 points
-    if find_topic(page_text):
-        score += 15
+    # Component 3: Subject line found (+15 points)
+    topic_value = find_topic(page_text)
+    topic_info = {
+        'found': topic_value is not None,
+        'value': topic_value,
+        'score': 15 if topic_value else 0
+    }
+    total_score += topic_info['score']
     
-    # Salutation found: +15 points
+    # Component 4: Salutation found (+15 points)
+    salutation_value = None
+    salutation_found = False
     for line in lines[:20]:
         if _is_salutation(line):
-            score += 15
+            salutation_value = line.strip()
+            salutation_found = True
             break
     
-    # "Page 1" or "1 of X" marker: +25 points
+    salutation_info = {
+        'found': salutation_found,
+        'value': salutation_value,
+        'score': 15 if salutation_found else 0
+    }
+    total_score += salutation_info['score']
+    
+    # Component 5: "Page 1 of X" marker (+35 points)
+    page_marker_value = None
+    page_marker_found = False
     page_one_patterns = [
         r'\bpage\s+1\b',
         r'\b1\s+of\s+\d+\b',
@@ -379,22 +422,49 @@ def _calculate_header_score(page_text: str) -> int:
         r'\b1\s+von\s+\d+\b',
     ]
     for pattern in page_one_patterns:
-        if re.search(pattern, top_section, re.IGNORECASE):
-            score += 35
+        match = re.search(pattern, top_section, re.IGNORECASE)
+        if match:
+            page_marker_value = match.group(0)
+            page_marker_found = True
             break
     
-    # Address block structure: +10 points
-    # Look for lines with postal codes, street patterns
+    page_marker_info = {
+        'found': page_marker_found,
+        'value': page_marker_value,
+        'score': 35 if page_marker_found else 0
+    }
+    total_score += page_marker_info['score']
+    
+    # Component 6: Address block structure (+10 points)
+    address_value = None
+    address_found = False
     address_patterns = [
         r'\b\d{5}\b',  # Postal code (5 digits)
         r'\b\d{1,5}\s+\w+\s+(Street|St|Avenue|Ave|Road|Rd|Straße|Str)\b',
     ]
     for pattern in address_patterns:
-        if re.search(pattern, top_section, re.IGNORECASE):
-            score += 10
+        match = re.search(pattern, top_section, re.IGNORECASE)
+        if match:
+            address_value = match.group(0)
+            address_found = True
             break
     
-    return score
+    address_info = {
+        'found': address_found,
+        'value': address_value,
+        'score': 10 if address_found else 0
+    }
+    total_score += address_info['score']
+    
+    return {
+        'total_score': total_score,
+        'date': date_info,
+        'sender': sender_info,
+        'topic': topic_info,
+        'salutation': salutation_info,
+        'page_marker': page_marker_info,
+        'address': address_info
+    }
 
 
 def analyze_documents(ocr_pages: List[str]) -> List[Dict[str, Any]]:
@@ -423,7 +493,8 @@ def analyze_documents(ocr_pages: List[str]) -> List[Dict[str, Any]]:
     header_threshold = 50  # Minimum score to trigger new letter
     
     for page_num, page_text in enumerate(ocr_pages, start=1):
-        score = _calculate_header_score(page_text)
+        score_result = _calculate_header_score(page_text)
+        score = score_result['total_score']
         
         # Check if this looks like the start of a new letter
         is_new_letter = score >= header_threshold

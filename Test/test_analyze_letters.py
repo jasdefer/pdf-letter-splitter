@@ -196,26 +196,34 @@ Sehr geehrte Damen und Herren,
 
 Content of the letter..."""
         
-        score = _calculate_header_score(text)
+        result = _calculate_header_score(text)
         # Should have high score (date + sender + subject + salutation)
-        self.assertGreater(score, 60)
+        self.assertGreater(result['total_score'], 60)
+        self.assertTrue(result['date']['found'])
+        self.assertTrue(result['sender']['found'])
+        self.assertTrue(result['topic']['found'])
+        self.assertTrue(result['salutation']['found'])
     
     def test_minimal_header(self):
         """Test scoring with minimal header elements."""
         text = "Some content without clear header structure"
-        score = _calculate_header_score(text)
-        self.assertLess(score, 40)
+        result = _calculate_header_score(text)
+        self.assertLess(result['total_score'], 40)
     
     def test_page_one_marker(self):
         """Test that page 1 marker increases score."""
         text = "Page 1 of 3\nSome content"
-        score = _calculate_header_score(text)
-        self.assertGreater(score, 20)
+        result = _calculate_header_score(text)
+        self.assertGreater(result['total_score'], 20)
+        self.assertTrue(result['page_marker']['found'])
+        self.assertEqual(result['page_marker']['value'], 'Page 1')
     
     def test_empty_text(self):
         """Test with empty text."""
-        score = _calculate_header_score("")
-        self.assertEqual(score, 0)
+        result = _calculate_header_score("")
+        self.assertEqual(result['total_score'], 0)
+        self.assertFalse(result['date']['found'])
+        self.assertFalse(result['sender']['found'])
 
 
 class TestDocumentAnalysis(unittest.TestCase):
