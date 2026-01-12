@@ -4,75 +4,6 @@ This directory contains a Dockerized Python script for extracting text with boun
 
 The extractor produces TSV (tab-separated values) output with positional data for each OCR element, enabling downstream processing such as letter detection, date/sender extraction, and document splitting.
 
-## Docker Compose Setup (Recommended)
-
-The easiest way to run the OCR pipeline is using Docker Compose, which automatically manages both the OCR pipeline and a local LLM server.
-
-### Prerequisites
-
-The setup requires a llama.cpp server Docker image. You have several options:
-
-1. **Build from llama.cpp source**: Follow [llama.cpp Docker documentation](https://github.com/ggerganov/llama.cpp/tree/master/examples/server#docker) to build the image
-2. **Use a pre-built image**: If available, pull from `ghcr.io/ggerganov/llama.cpp:server`
-3. **Tag your own build**: If you build llama.cpp locally, tag it appropriately:
-   ```bash
-   docker tag your-llama-cpp-build ghcr.io/ggerganov/llama.cpp:server
-   ```
-
-### Setup
-
-1. Copy the example environment file and edit it:
-   ```bash
-   cd Source
-   cp .env.example .env
-   ```
-
-2. Edit `.env` to configure:
-   - `INPUT_PDF`: Your input PDF filename (must exist in Source/)
-   - `OUTPUT_TSV`: Output TSV filename
-   - `MODEL_FILE`: LLM model filename (must exist in Source/)
-   - `OCR_JOBS`: Number of parallel OCR jobs (0 = use all CPU cores)
-   - `COMPOSE_PROFILES`: Use `cpu` (default) or `gpu`
-
-3. Place your input PDF and model file in the Source/ directory:
-   ```bash
-   # Example
-   cp /path/to/your/document.pdf Source/input.pdf
-   cp /path/to/your/model.gguf Source/model.gguf
-   ```
-
-### Running
-
-**CPU mode (default):**
-```bash
-cd Source
-docker compose --profile cpu up --abort-on-container-exit
-```
-
-**GPU mode (requires nvidia-container-toolkit):**
-```bash
-cd Source
-docker compose --profile gpu up --abort-on-container-exit
-```
-
-The pipeline will run once and exit automatically. Both containers stop when the pipeline completes.
-
-### Cleanup
-
-To remove all containers after execution:
-```bash
-docker compose down --profile cpu
-```
-
-### Notes
-
-- The LLM server runs internally and is not exposed to the host
-- Pipeline → LLM communication is not yet implemented (infrastructure only)
-- Missing input PDF or model file will cause startup failures
-- GPU mode requires NVIDIA GPU and nvidia-container-toolkit
-- **Model loading**: The LLM server has a 60-second startup period to allow for model loading. Larger models may take longer to load; the healthcheck will retry for up to 2 minutes before failing.
-- **Healthcheck**: Uses `curl` to check if the llama.cpp server is responding on the `/health` endpoint
-
 ## Building the Docker Image
 
 ```bash
@@ -163,11 +94,11 @@ When `--verbose` is specified:
 
 ## Running Tests
 
-Tests are located in the `Test/` directory and can be run using pytest:
+Tests are located in the `Test/` directory and can be run using unittest:
 
 ```bash
-docker run --rm --entrypoint bash -v "$(pwd):/work" pdf-letter-splitter \
-  -c "pip install pytest && cd /work && python3 -m pytest Test/test_ocr_extract.py -v"
+docker run --rm -v "$(pwd):/work" --entrypoint python3 pdf-letter-splitter \
+  -m unittest Test/test_process_letters.py
 ```
 
 ## Requirements
