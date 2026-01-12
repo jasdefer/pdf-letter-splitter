@@ -122,6 +122,7 @@ class TestOCRExtractWithPositions(unittest.TestCase):
     def test_dataframe_to_tsv(self):
         """Test that the DataFrame can be saved to TSV format."""
         import tempfile
+        import os
         
         # Extract text from the test PDF
         result = extract_text(self.test_pdf_path)
@@ -134,12 +135,10 @@ class TestOCRExtractWithPositions(unittest.TestCase):
             result.to_csv(tsv_path, sep='\t', index=False)
             
             # Verify file was created and is not empty
-            import os
             self.assertTrue(os.path.exists(tsv_path))
             self.assertGreater(os.path.getsize(tsv_path), 0)
         finally:
             # Clean up
-            import os
             if os.path.exists(tsv_path):
                 os.unlink(tsv_path)
     

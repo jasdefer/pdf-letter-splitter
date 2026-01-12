@@ -157,13 +157,8 @@ def extract_text(input_path: Path, lang: str = 'deu+eng',
                     output_type=pytesseract.Output.DATAFRAME
                 )
                 
-                # pytesseract already returns a DataFrame when using Output.DATAFRAME
-                if isinstance(tsv_string, pd.DataFrame):
-                    df = tsv_string
-                else:
-                    # Fallback: parse TSV string
-                    from io import StringIO
-                    df = pd.read_csv(StringIO(tsv_string), sep='\t')
+                # pytesseract returns a DataFrame when using Output.DATAFRAME
+                df = tsv_string
                 
                 # Add page_num column (Tesseract uses page_num=0 for single images)
                 df['page_num'] = page_num
