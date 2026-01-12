@@ -29,7 +29,7 @@ def find_date(page_text: str) -> Optional[str]:
     
     # Extract top portion (approximately first 15% of lines)
     lines = page_text.split('\n')
-    top_lines_count = max(5, len(lines) // 7)  # At least 5 lines, or ~15%
+    top_lines_count = min(25, len(lines))  # At least 5 lines, or ~15%
     top_section = '\n'.join(lines[:top_lines_count])
     
     # Date patterns in priority order
@@ -351,7 +351,7 @@ def _calculate_header_score(page_text: str) -> int:
     
     score = 0
     lines = page_text.split('\n')
-    top_section = '\n'.join(lines[:max(25, len(lines))])
+    top_section = '\n'.join(lines[:min(25, len(lines))])
     
     # Date in top section: +30 points
     if find_date(page_text):
@@ -420,11 +420,10 @@ def analyze_documents(ocr_pages: List[str]) -> List[Dict[str, Any]]:
     
     letters = []
     current_letter = None
-    header_threshold = 40  # Minimum score to trigger new letter
+    header_threshold = 50  # Minimum score to trigger new letter
     
     for page_num, page_text in enumerate(ocr_pages, start=1):
         score = _calculate_header_score(page_text)
-        print(f"Page {page_num}: Header score = {score}")
         
         # Check if this looks like the start of a new letter
         is_new_letter = score >= header_threshold
