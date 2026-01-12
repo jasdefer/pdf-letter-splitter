@@ -351,7 +351,7 @@ def _calculate_header_score(page_text: str) -> int:
     
     score = 0
     lines = page_text.split('\n')
-    top_section = '\n'.join(lines[:max(5, len(lines) // 7)])
+    top_section = '\n'.join(lines[:max(25, len(lines))])
     
     # Date in top section: +30 points
     if find_date(page_text):
@@ -380,7 +380,7 @@ def _calculate_header_score(page_text: str) -> int:
     ]
     for pattern in page_one_patterns:
         if re.search(pattern, top_section, re.IGNORECASE):
-            score += 25
+            score += 35
             break
     
     # Address block structure: +10 points
@@ -424,6 +424,7 @@ def analyze_documents(ocr_pages: List[str]) -> List[Dict[str, Any]]:
     
     for page_num, page_text in enumerate(ocr_pages, start=1):
         score = _calculate_header_score(page_text)
+        print(f"Page {page_num}: Header score = {score}")
         
         # Check if this looks like the start of a new letter
         is_new_letter = score >= header_threshold

@@ -73,6 +73,9 @@ def process_pdf_letters(
         deskew=deskew,
         jobs=jobs
     )
+
+    with open('ocr_result.json', 'w', encoding='utf-8') as f:
+        json.dump(ocr_result, f, indent=4)
     
     # Step 2: Extract page text for analysis
     ocr_pages = [page['text'] for page in ocr_result['pages']]
