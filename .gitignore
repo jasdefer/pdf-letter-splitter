@@ -27,6 +27,10 @@ Thumbs.db
 *.pdf
 *.gguf
 
+# OCR output files
+ocr_output.tsv
+output.tsv
+
 # Environment files
 .env
 
