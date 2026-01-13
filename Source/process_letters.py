@@ -273,10 +273,6 @@ def main():
             jobs=args.jobs
         )
         
-        # Write results to TSV file
-        logger.info(f"Writing output to {output_path}")
-        result_df.to_csv(output_path, sep='\t', index=False)
-        
         # If verbose, also dump to ocr_output.tsv
         if args.verbose:
             verbose_output_path = Path('ocr_output.tsv')
@@ -285,7 +281,6 @@ def main():
         
         logger.info(f"Successfully extracted text from {result_df['page_num'].nunique()} pages")
         logger.info(f"Total OCR elements: {len(result_df)}")
-        logger.info(f"Output written to: {output_path}")
         
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=args.verbose)
