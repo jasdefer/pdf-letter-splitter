@@ -2,7 +2,7 @@
 
 import pandas as pd
 import re
-from typing import Optional, Tuple
+from typing import Optional
 from page_analysis_data import LetterPageIndex, TextMarker
 
 
@@ -116,7 +116,7 @@ def _find_first_word_of_match(line_group: pd.DataFrame, match: re.Match, line_te
     Args:
         line_group: DataFrame of words in the line
         match: Regex match object
-        line_text: Reconstructed line text
+        line_text: Reconstructed line text (words joined with single spaces)
     
     Returns:
         Index in line_group of the first word, or None if not found
@@ -124,6 +124,7 @@ def _find_first_word_of_match(line_group: pd.DataFrame, match: re.Match, line_te
     match_start = match.start()
     
     # Count characters in reconstructed text to find which word the match starts in
+    # Note: line_text is reconstructed with single spaces, so we use consistent spacing here
     current_pos = 0
     for idx, (_, word_row) in enumerate(line_group.iterrows()):
         word_text = str(word_row['text'])
@@ -134,7 +135,7 @@ def _find_first_word_of_match(line_group: pd.DataFrame, match: re.Match, line_te
         if word_start <= match_start < word_end:
             return idx
         
-        # Account for space after word
+        # Account for the single space we added during reconstruction
         current_pos = word_end + 1
     
     return None
