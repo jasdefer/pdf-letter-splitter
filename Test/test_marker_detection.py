@@ -29,7 +29,7 @@ class TestDetectGreeting(unittest.TestCase):
         Helper to create a minimal OCR DataFrame for testing.
         
         Args:
-            words_data: List of tuples (text, left, top, line_num)
+            words_data: List of tuples (text, left, top, line_num) or (text, left, top, line_num, par_num)
             page_width: Page width in pixels
             page_height: Page height in pixels
         
@@ -37,12 +37,18 @@ class TestDetectGreeting(unittest.TestCase):
             DataFrame mimicking OCR output
         """
         rows = []
-        for idx, (text, left, top, line_num) in enumerate(words_data):
+        for idx, word_data in enumerate(words_data):
+            if len(word_data) == 4:
+                text, left, top, line_num = word_data
+                par_num = 1  # Default to paragraph 1
+            else:
+                text, left, top, line_num, par_num = word_data
+            
             rows.append({
                 'level': 5,  # Word level
                 'page_num': 1,
                 'block_num': 1,
-                'par_num': 1,
+                'par_num': par_num,
                 'line_num': line_num,
                 'word_num': idx + 1,
                 'left': left,
@@ -229,18 +235,18 @@ class TestDetectGreeting(unittest.TestCase):
     def test_greeting_in_second_line(self):
         """Test that greeting is found even if not on first line."""
         words_data = [
-            ('Some', 100, 100, 1),
-            ('header', 170, 100, 1),
-            ('text', 250, 100, 1),
-            ('Dear', 100, 200, 2),
-            ('Sir,', 160, 200, 2),
+            ('Some', 100, 100, 1, 1),  # paragraph 1
+            ('header', 170, 100, 1, 1),
+            ('text', 250, 100, 1, 1),
+            ('Dear', 100, 200, 1, 2),  # paragraph 2 (different par_num)
+            ('Sir,', 160, 200, 1, 2),
         ]
         page_df = self._create_test_dataframe(words_data)
         
         result = detect_greeting(page_df)
         
         self.assertTrue(result.found)
-        # raw should contain the full line
+        # raw should contain the full paragraph (which is just "Dear Sir,")
         self.assertEqual(result.raw, 'Dear Sir,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)
@@ -286,10 +292,10 @@ class TestDetectGreeting(unittest.TestCase):
     def test_multiple_greetings_returns_first(self):
         """Test that if multiple greetings exist, the first one is returned."""
         words_data = [
-            ('Hallo', 100, 100, 1),
-            ('Team,', 170, 100, 1),
-            ('Dear', 100, 200, 2),
-            ('Sir,', 160, 200, 2),
+            ('Hallo', 100, 100, 1, 1),  # paragraph 1
+            ('Team,', 170, 100, 1, 1),
+            ('Dear', 100, 200, 1, 2),  # paragraph 2 (different par_num)
+            ('Sir,', 160, 200, 1, 2),
         ]
         page_df = self._create_test_dataframe(words_data)
         
@@ -405,6 +411,27 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertEqual(result.raw, 'Sehr geehrte Damen und Herren')
+    
+    def test_multiline_greeting_in_same_paragraph(self):
+        """Test that greetings spanning multiple lines in same paragraph are detected."""
+        # Greeting split across lines but in same paragraph
+        words_data = [
+            ('Sehr', 100, 200, 1, 1),  # line 1
+            ('geehrte', 170, 200, 1, 1),
+            ('Damen', 100, 220, 2, 1),  # line 2, same paragraph
+            ('und', 170, 220, 2, 1),
+            ('Herren,', 230, 220, 2, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_greeting(page_df)
+        
+        self.assertTrue(result.found)
+        # Should match and return full paragraph text
+        self.assertEqual(result.raw, 'Sehr geehrte Damen und Herren,')
+        # Position should be at start of "Sehr"
+        self.assertEqual(result.x_rel, 0.1)
+        self.assertAlmostEqual(result.y_rel, 0.133, places=2)
 
 
 if __name__ == '__main__':

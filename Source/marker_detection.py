@@ -72,96 +72,98 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
     if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
         return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
     
-    # Group words by line to reconstruct text line by line
-    if 'line_num' in words_df.columns:
-        # Sort by line_num and position within line
-        words_df = words_df.sort_values(['line_num', 'left'])
-        lines = words_df.groupby('line_num')
+    # Group words by paragraph to avoid line_num collisions across blocks/paragraphs
+    # Note: line_num is only unique within a paragraph in Tesseract TSV output
+    if all(col in words_df.columns for col in ['page_num', 'block_num', 'par_num', 'line_num']):
+        # Group by paragraph (page_num, block_num, par_num)
+        # Sort within each paragraph by line_num, then left position
+        words_df = words_df.sort_values(['page_num', 'block_num', 'par_num', 'line_num', 'left'])
+        paragraphs = words_df.groupby(['page_num', 'block_num', 'par_num'])
     else:
         # Fallback: group by vertical position (top coordinate)
         # Use a small tolerance for grouping words on the same line
         words_df['line_group'] = (words_df['top'] / LINE_GROUPING_TOLERANCE).round().astype(int)
         words_df = words_df.sort_values(['line_group', 'left'])
-        lines = words_df.groupby('line_group')
+        paragraphs = words_df.groupby('line_group')
     
-    # Search for greetings line by line
-    for line_key, line_group in lines:
-        # Reconstruct the line text
-        line_text = ' '.join(line_group['text'].astype(str))
+    # Search for greetings paragraph by paragraph
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
         
         # Check strong greeting patterns first
         for pattern in strong_greeting_patterns:
-            match = re.search(pattern, line_text, re.IGNORECASE)
+            match = re.search(pattern, para_text, re.IGNORECASE)
             if match:
-                # Found a greeting! Return full line as raw value
-                return _create_greeting_marker(line_group, match, line_text, page_width, page_height)
+                # Found a greeting! Return full paragraph as raw value
+                return _create_greeting_marker(para_group, match, para_text, page_width, page_height)
         
         # Check weak greeting patterns (with comma constraint)
         for pattern in weak_greeting_patterns:
-            match = re.search(pattern, line_text, re.IGNORECASE)
+            match = re.search(pattern, para_text, re.IGNORECASE)
             if match:
-                # Found a greeting! Return full line as raw value
-                return _create_greeting_marker(line_group, match, line_text, page_width, page_height)
+                # Found a greeting! Return full paragraph as raw value
+                return _create_greeting_marker(para_group, match, para_text, page_width, page_height)
     
     # No greeting found
     return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
 
 
-def _create_greeting_marker(line_group: pd.DataFrame, match: re.Match, line_text: str, 
+def _create_greeting_marker(para_group: pd.DataFrame, match: re.Match, para_text: str, 
                             page_width: float, page_height: float) -> TextMarker:
     """
     Create a TextMarker for a detected greeting.
     
     Args:
-        line_group: DataFrame of words in the line
+        para_group: DataFrame of words in the paragraph
         match: Regex match object
-        line_text: Reconstructed line text
+        para_text: Reconstructed paragraph text
         page_width: Page width in pixels
         page_height: Page height in pixels
     
     Returns:
         TextMarker with greeting information
     """
-    # Find the first word of the greeting in the line_group
-    first_word_idx = _find_first_word_of_match(line_group, match, line_text)
+    # Find the first word of the greeting in the para_group
+    first_word_idx = _find_first_word_of_match(para_group, match, para_text)
     
     if first_word_idx is not None:
-        first_word = line_group.iloc[first_word_idx]
+        first_word = para_group.iloc[first_word_idx]
         x_rel = first_word['left'] / page_width
         y_rel = first_word['top'] / page_height
     else:
-        # Fallback: use first word in line
-        first_word = line_group.iloc[0]
+        # Fallback: use first word in paragraph
+        first_word = para_group.iloc[0]
         x_rel = first_word['left'] / page_width
         y_rel = first_word['top'] / page_height
     
-    # Store the full line text as raw value for context and debugging
+    # Store the full paragraph text as raw value for context and debugging
     return TextMarker(
         found=True,
-        raw=line_text.strip(),
+        raw=para_text.strip(),
         x_rel=float(x_rel),
         y_rel=float(y_rel)
     )
 
 
-def _find_first_word_of_match(line_group: pd.DataFrame, match: re.Match, line_text: str) -> Optional[int]:
+def _find_first_word_of_match(para_group: pd.DataFrame, match: re.Match, para_text: str) -> Optional[int]:
     """
-    Find the index of the first word in line_group that corresponds to the regex match.
+    Find the index of the first word in para_group that corresponds to the regex match.
     
     Args:
-        line_group: DataFrame of words in the line
+        para_group: DataFrame of words in the paragraph
         match: Regex match object
-        line_text: Reconstructed line text (words joined with single spaces)
+        para_text: Reconstructed paragraph text (words joined with single spaces)
     
     Returns:
-        Index in line_group of the first word, or None if not found
+        Index in para_group of the first word, or None if not found
     """
     match_start = match.start()
     
     # Count characters in reconstructed text to find which word the match starts in
-    # Note: line_text is reconstructed with single spaces, so we use consistent spacing here
+    # Note: para_text is reconstructed with single spaces, so we use consistent spacing here
     current_pos = 0
-    for idx, (_, word_row) in enumerate(line_group.iterrows()):
+    for idx, (_, word_row) in enumerate(para_group.iterrows()):
         word_text = str(word_row['text'])
         word_start = current_pos
         word_end = current_pos + len(word_text)
