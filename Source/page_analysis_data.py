@@ -22,7 +22,7 @@ class TextMarker:
 
 
 @dataclass
-class PageData:
+class PageAnalysis:
     scan_page_num: int
     page_info: PageInfoDetected
     greeting: TextMarker
@@ -31,7 +31,7 @@ class PageData:
     address_block: TextMarker
 
 
-def write_page_data_to_json(page_data_list: list[PageData], output_path: Path) -> None:
-    data_dicts = [asdict(page) for page in page_data_list]
+def write_page_analysis_to_json(page_analysis_list: list[PageAnalysis], output_path: Path) -> None:
+    data_dicts = [asdict(page) for page in page_analysis_list]
     with open(output_path, 'w') as f:
         json.dump(data_dicts, f, indent=2)

@@ -24,8 +24,8 @@ except ImportError as e:
     print("Install with: pip install pandas pytesseract Pillow", file=sys.stderr)
     sys.exit(1)
 
-from page_analysis import analyze_pages
-from page_data import write_page_data_to_json
+from page_analyzer import analyze_pages
+from page_analysis_data import write_page_analysis_to_json
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +290,7 @@ def main():
             logger.info("Analyzing pages...")
             pages = analyze_pages(result_df)
             page_data_path = Path(args.page_data)
-            write_page_data_to_json(pages, page_data_path)
+            write_page_analysis_to_json(pages, page_data_path)
             logger.info(f"Page data written to {page_data_path}")
         
     except Exception as e:
