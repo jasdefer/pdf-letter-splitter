@@ -24,7 +24,9 @@ except ImportError as e:
     print("Install with: pip install pandas pytesseract Pillow", file=sys.stderr)
     sys.exit(1)
 
-# Set up module-level logger
+from page_analyzer import analyze_pages
+from page_analysis_data import write_page_analysis_to_json
+
 logger = logging.getLogger(__name__)
 
 
@@ -229,6 +231,11 @@ def main():
         help='Output TSV file path (default: output.tsv)'
     )
     parser.add_argument(
+        '--page-data',
+        type=str,
+        help='Output JSON file path for page data analysis'
+    )
+    parser.add_argument(
         '--no-rotate',
         action='store_true',
         help='Disable automatic page rotation correction'
@@ -252,7 +259,6 @@ def main():
     
     args = parser.parse_args()
     
-    # Set up logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
@@ -264,7 +270,6 @@ def main():
     output_path = Path(args.output)
     
     try:
-        # Extract text from PDF
         logger.info("Starting OCR extraction...")
         result_df = extract_text(
             input_path,
@@ -273,7 +278,6 @@ def main():
             jobs=args.jobs
         )
         
-        # If verbose, also dump to ocr_output.tsv
         if args.verbose:
             verbose_output_path = Path('ocr_output.tsv')
             logger.debug(f"Dumping full OCR table to {verbose_output_path}")
@@ -281,6 +285,13 @@ def main():
         
         logger.info(f"Successfully extracted text from {result_df['page_num'].nunique()} pages")
         logger.info(f"Total OCR elements: {len(result_df)}")
+        
+        if args.page_data:
+            logger.info("Analyzing pages...")
+            pages = analyze_pages(result_df)
+            page_data_path = Path(args.page_data)
+            write_page_analysis_to_json(pages, page_data_path)
+            logger.info(f"Page data written to {page_data_path}")
         
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=args.verbose)
