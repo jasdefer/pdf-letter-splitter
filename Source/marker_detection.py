@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 
 import pandas as pd
-from page_analysis_data import PageInfoDetected, TextMarker
+from page_analysis_data import LetterPageIndex, TextMarker
 
 
-def detect_page_info(page_df: pd.DataFrame) -> PageInfoDetected:
+def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
     raise NotImplementedError
 
 

@@ -3,7 +3,7 @@
 import pandas as pd
 from page_analysis_data import PageAnalysis
 from marker_detection import (
-    detect_page_info,
+    detect_letter_page_index,
     detect_greeting,
     detect_goodbye,
     detect_betreff,
@@ -27,7 +27,7 @@ def analyze_pages(ocr_df: pd.DataFrame) -> list[PageAnalysis]:
         
         page_analysis = PageAnalysis(
             scan_page_num=int(page_num),
-            page_info=detect_page_info(page_df),
+            letter_page_index=detect_letter_page_index(page_df),
             greeting=detect_greeting(page_df),
             goodbye=detect_goodbye(page_df),
             betreff=detect_betreff(page_df),

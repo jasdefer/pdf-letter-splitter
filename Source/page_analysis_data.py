@@ -7,7 +7,7 @@ import json
 
 
 @dataclass
-class PageInfoDetected:
+class LetterPageIndex:
     found: bool = False
     current: Optional[int] = None
     total: Optional[int] = None
@@ -24,7 +24,7 @@ class TextMarker:
 @dataclass
 class PageAnalysis:
     scan_page_num: int
-    page_info: PageInfoDetected
+    letter_page_index: LetterPageIndex
     greeting: TextMarker
     goodbye: TextMarker
     betreff: TextMarker
