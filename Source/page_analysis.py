@@ -7,7 +7,6 @@ creating PageData structures for all pages in a document.
 """
 
 import pandas as pd
-from typing import List
 from page_data import PageData, PageInfoDetected, TextMarker
 from marker_detection import (
     detect_page_info,
@@ -18,7 +17,7 @@ from marker_detection import (
 )
 
 
-def analyze_pages(ocr_df: pd.DataFrame) -> List[PageData]:
+def analyze_pages(ocr_df: pd.DataFrame) -> list[PageData]:
     """
     Analyze all pages in an OCR DataFrame and create PageData instances.
     
