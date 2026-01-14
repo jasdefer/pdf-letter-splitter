@@ -35,19 +35,23 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
     
     # Greeting patterns for German and English
     # These patterns will be matched case-insensitively against reconstructed lines
-    greeting_patterns = [
-        # German patterns
+    # Strong patterns: match without restrictions
+    strong_greeting_patterns = [
         r'\bsehr\s+geehrte[rs]?\b',  # Sehr geehrte/r/s
         r'\bguten\s+tag\b',           # Guten Tag
-        r'\bhallo\b',                 # Hallo
-        r'\bliebe[rs]?\b',            # Liebe/r/s
-        # English patterns
         r'\bdear\b',                  # Dear
-        r'\bhello\b',                 # Hello
-        r'\bhi\b',                    # Hi
         r'\bgood\s+morning\b',        # Good morning
         r'\bgood\s+afternoon\b',      # Good afternoon
         r'\bgood\s+evening\b',        # Good evening
+    ]
+    
+    # Weak patterns: must be followed by ≤7 words and end with comma to reduce false positives
+    # Pattern: greeting keyword + 1-7 words + comma
+    weak_greeting_patterns = [
+        r'\bhallo\b(?:\s+\S+){1,7},',    # Hallo + up to 7 words + comma
+        r'\bliebe[rs]?\b(?:\s+\S+){1,7},',  # Liebe/r/s + up to 7 words + comma
+        r'\bhello\b(?:\s+\S+){1,7},',    # Hello + up to 7 words + comma
+        r'\bhi\b(?:\s+\S+){1,7},',       # Hi + up to 7 words + comma
     ]
     
     # Filter to word-level elements with non-empty text
@@ -85,36 +89,59 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
         # Reconstruct the line text
         line_text = ' '.join(line_group['text'].astype(str))
         
-        # Check each greeting pattern
-        for pattern in greeting_patterns:
+        # Check strong greeting patterns first
+        for pattern in strong_greeting_patterns:
             match = re.search(pattern, line_text, re.IGNORECASE)
             if match:
-                # Found a greeting! Get the position of the first word in the match
-                matched_text = match.group(0)
-                
-                # Find the first word of the greeting in the line_group
-                # We need to map back from the reconstructed text to the original words
-                first_word_idx = _find_first_word_of_match(line_group, match, line_text)
-                
-                if first_word_idx is not None:
-                    first_word = line_group.iloc[first_word_idx]
-                    x_rel = first_word['left'] / page_width
-                    y_rel = first_word['top'] / page_height
-                else:
-                    # Fallback: use first word in line
-                    first_word = line_group.iloc[0]
-                    x_rel = first_word['left'] / page_width
-                    y_rel = first_word['top'] / page_height
-                
-                return TextMarker(
-                    found=True,
-                    raw=matched_text,
-                    x_rel=float(x_rel),
-                    y_rel=float(y_rel)
-                )
+                # Found a greeting! Return full line as raw value
+                return _create_greeting_marker(line_group, match, line_text, page_width, page_height)
+        
+        # Check weak greeting patterns (with comma constraint)
+        for pattern in weak_greeting_patterns:
+            match = re.search(pattern, line_text, re.IGNORECASE)
+            if match:
+                # Found a greeting! Return full line as raw value
+                return _create_greeting_marker(line_group, match, line_text, page_width, page_height)
     
     # No greeting found
     return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+
+
+def _create_greeting_marker(line_group: pd.DataFrame, match: re.Match, line_text: str, 
+                            page_width: float, page_height: float) -> TextMarker:
+    """
+    Create a TextMarker for a detected greeting.
+    
+    Args:
+        line_group: DataFrame of words in the line
+        match: Regex match object
+        line_text: Reconstructed line text
+        page_width: Page width in pixels
+        page_height: Page height in pixels
+    
+    Returns:
+        TextMarker with greeting information
+    """
+    # Find the first word of the greeting in the line_group
+    first_word_idx = _find_first_word_of_match(line_group, match, line_text)
+    
+    if first_word_idx is not None:
+        first_word = line_group.iloc[first_word_idx]
+        x_rel = first_word['left'] / page_width
+        y_rel = first_word['top'] / page_height
+    else:
+        # Fallback: use first word in line
+        first_word = line_group.iloc[0]
+        x_rel = first_word['left'] / page_width
+        y_rel = first_word['top'] / page_height
+    
+    # Store the full line text as raw value for context and debugging
+    return TextMarker(
+        found=True,
+        raw=line_text.strip(),
+        x_rel=float(x_rel),
+        y_rel=float(y_rel)
+    )
 
 
 def _find_first_word_of_match(line_group: pd.DataFrame, match: re.Match, line_text: str) -> Optional[int]:

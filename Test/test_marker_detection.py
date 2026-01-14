@@ -70,8 +70,8 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertIn('sehr', result.raw.lower())
-        self.assertIn('geehrte', result.raw.lower())
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Sehr geehrte Frau Müller,')
         self.assertAlmostEqual(result.x_rel, 0.1, places=2)  # 100/1000
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)  # 200/1500
     
@@ -89,13 +89,13 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertIn('guten', result.raw.lower())
-        self.assertIn('tag', result.raw.lower())
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Guten Tag Herr Schmidt,')
         self.assertEqual(result.x_rel, 0.1)  # 100/1000
         self.assertEqual(result.y_rel, 0.2)  # 300/1500
     
     def test_detect_german_greeting_hallo(self):
-        """Test detection of 'Hallo' greeting."""
+        """Test detection of 'Hallo' greeting with comma (weak pattern)."""
         words_data = [
             ('Hallo', 100, 250, 1),
             ('zusammen,', 170, 250, 1),
@@ -106,12 +106,13 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertEqual(result.raw.lower(), 'hallo')
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Hallo zusammen,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.167, places=2)
     
     def test_detect_german_greeting_liebe(self):
-        """Test detection of 'Liebe' greeting."""
+        """Test detection of 'Liebe' greeting with comma (weak pattern)."""
         words_data = [
             ('Liebe', 100, 220, 1),
             ('Anna,', 170, 220, 1),
@@ -122,12 +123,13 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertEqual(result.raw.lower(), 'liebe')
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Liebe Anna,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.147, places=2)
     
     def test_detect_english_greeting_dear(self):
-        """Test detection of 'Dear' greeting."""
+        """Test detection of 'Dear' greeting (strong pattern)."""
         words_data = [
             ('Dear', 100, 200, 1),
             ('Mr.', 160, 200, 1),
@@ -139,12 +141,13 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertEqual(result.raw.lower(), 'dear')
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Dear Mr. Smith,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)
     
     def test_detect_english_greeting_hello(self):
-        """Test detection of 'Hello' greeting."""
+        """Test detection of 'Hello' greeting with comma (weak pattern)."""
         words_data = [
             ('Hello', 100, 200, 1),
             ('everyone,', 170, 200, 1),
@@ -155,12 +158,13 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertEqual(result.raw.lower(), 'hello')
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Hello everyone,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)
     
     def test_detect_english_greeting_good_morning(self):
-        """Test detection of 'Good morning' greeting."""
+        """Test detection of 'Good morning' greeting (strong pattern)."""
         words_data = [
             ('Good', 100, 200, 1),
             ('morning', 160, 200, 1),
@@ -172,8 +176,8 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertIn('good', result.raw.lower())
-        self.assertIn('morning', result.raw.lower())
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Good morning team,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)
     
@@ -219,7 +223,8 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        self.assertIn('dear', result.raw.lower())
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'DEAR JOHN,')
     
     def test_greeting_in_second_line(self):
         """Test that greeting is found even if not on first line."""
@@ -235,7 +240,8 @@ class TestDetectGreeting(unittest.TestCase):
         result = detect_greeting(page_df)
         
         self.assertTrue(result.found)
-        self.assertEqual(result.raw.lower(), 'dear')
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Dear Sir,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)
     
@@ -245,6 +251,7 @@ class TestDetectGreeting(unittest.TestCase):
         page_height = 3000
         words_data = [
             ('Hallo', 500, 900, 1),
+            ('Team,', 600, 900, 1),
         ]
         page_df = self._create_test_dataframe(words_data, page_width=page_width, page_height=page_height)
         
@@ -270,8 +277,8 @@ class TestDetectGreeting(unittest.TestCase):
         
         self.assertTrue(result.found)
         self.assertIsNotNone(result.raw)
-        # Should match the multi-word pattern
-        self.assertIn('sehr', result.raw.lower())
+        # raw should contain the full line
+        self.assertEqual(result.raw, 'Sehr geehrte Damen und Herren,')
         # Position should be at the start of "Sehr"
         self.assertEqual(result.x_rel, 0.1)
         self.assertAlmostEqual(result.y_rel, 0.133, places=2)
@@ -280,6 +287,7 @@ class TestDetectGreeting(unittest.TestCase):
         """Test that if multiple greetings exist, the first one is returned."""
         words_data = [
             ('Hallo', 100, 100, 1),
+            ('Team,', 170, 100, 1),
             ('Dear', 100, 200, 2),
             ('Sir,', 160, 200, 2),
         ]
@@ -288,8 +296,8 @@ class TestDetectGreeting(unittest.TestCase):
         result = detect_greeting(page_df)
         
         self.assertTrue(result.found)
-        # Should return the first greeting (Hallo)
-        self.assertEqual(result.raw.lower(), 'hallo')
+        # Should return the first greeting (Hallo Team,)
+        self.assertEqual(result.raw, 'Hallo Team,')
         self.assertAlmostEqual(result.y_rel, 0.067, places=2)  # 100/1500, not 200/1500
     
     def test_missing_required_columns(self):
@@ -327,6 +335,76 @@ class TestDetectGreeting(unittest.TestCase):
         self.assertIsNone(result.raw)
         self.assertIsNone(result.x_rel)
         self.assertIsNone(result.y_rel)
+    
+    def test_weak_greeting_without_comma_not_detected(self):
+        """Test that weak greetings without comma are not detected (reduces false positives)."""
+        # "Hallo" without comma should not match
+        words_data = [
+            ('Hallo', 100, 200, 1),
+            ('ich', 170, 200, 1),
+            ('bin', 220, 200, 1),
+            ('hier', 280, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_greeting(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+    
+    def test_liebe_in_body_text_not_detected(self):
+        """Test that 'liebe' in body text (no comma) is not detected as greeting."""
+        # "ich liebe" should not match as a greeting
+        words_data = [
+            ('Ich', 100, 200, 1),
+            ('liebe', 160, 200, 1),
+            ('das', 230, 200, 1),
+            ('Wetter', 290, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_greeting(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+    
+    def test_weak_greeting_with_too_many_words(self):
+        """Test that weak greetings with more than 7 words before comma are not detected."""
+        # "Hallo" followed by 8 words and comma should not match
+        words_data = [
+            ('Hallo', 100, 200, 1),
+            ('eins', 170, 200, 1),
+            ('zwei', 220, 200, 1),
+            ('drei', 280, 200, 1),
+            ('vier', 340, 200, 1),
+            ('fünf', 400, 200, 1),
+            ('sechs', 460, 200, 1),
+            ('sieben', 530, 200, 1),
+            ('acht,', 600, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_greeting(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+    
+    def test_strong_greeting_without_comma_still_detected(self):
+        """Test that strong greetings are detected even without comma."""
+        # "Sehr geehrte" should match even without comma
+        words_data = [
+            ('Sehr', 100, 200, 1),
+            ('geehrte', 170, 200, 1),
+            ('Damen', 280, 200, 1),
+            ('und', 360, 200, 1),
+            ('Herren', 420, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_greeting(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Sehr geehrte Damen und Herren')
 
 
 if __name__ == '__main__':
