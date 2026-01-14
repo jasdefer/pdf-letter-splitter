@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir --trusted-host pypi.org --trusted-host files.pyth
     -r /app/requirements.txt
 
 # Copy the extraction script
-COPY process_letters.py /app/process_letters.py
+COPY *.py /app/
 
 # Make script executable
 RUN chmod +x /app/process_letters.py

@@ -10,7 +10,12 @@ LINE_GROUPING_TOLERANCE = 10  # Pixels tolerance for grouping words on the same 
 
 
 def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
-    raise NotImplementedError
+    return LetterPageIndex(
+        found = False,
+        current = None,
+        total = None,
+        raw = None
+    )
 
 
 def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
@@ -177,12 +182,27 @@ def _find_first_word_of_match(line_group: pd.DataFrame, match: re.Match, line_te
 
 
 def detect_goodbye(page_df: pd.DataFrame) -> TextMarker:
-    raise NotImplementedError
+    return TextMarker(
+        found = False,
+        raw = None,
+        x_rel = None,
+        y_rel = None
+    )
 
 
 def detect_betreff(page_df: pd.DataFrame) -> TextMarker:
-    raise NotImplementedError
+    return TextMarker(
+        found = False,
+        raw = None,
+        x_rel = None,
+        y_rel = None
+    )
 
 
 def detect_address_block(page_df: pd.DataFrame) -> TextMarker:
-    raise NotImplementedError
+    return TextMarker(
+        found = False,
+        raw = None,
+        x_rel = None,
+        y_rel = None
+    )
