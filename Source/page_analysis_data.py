@@ -18,7 +18,8 @@ class LetterPageIndex:
 class TextMarker:
     found: bool = False
     raw: Optional[str] = None
-    text: Optional[str] = None
+    x_rel: Optional[float] = None
+    y_rel: Optional[float] = None
 
 
 @dataclass
