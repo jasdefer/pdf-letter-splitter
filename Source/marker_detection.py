@@ -5,6 +5,9 @@ import re
 from typing import Optional
 from page_analysis_data import LetterPageIndex, TextMarker
 
+# Constants for greeting detection
+LINE_GROUPING_TOLERANCE = 10  # Pixels tolerance for grouping words on the same line
+
 
 def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
     raise NotImplementedError
@@ -26,7 +29,8 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
             - y_rel: Relative y position (0..1) of greeting start
     """
     # Handle empty or invalid DataFrame
-    if page_df.empty or 'level' not in page_df.columns:
+    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height']
+    if page_df.empty or not all(col in page_df.columns for col in required_columns):
         return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
     
     # Greeting patterns for German and English
@@ -57,8 +61,12 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
         return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
     
     # Get page dimensions (should be consistent across all rows)
+    # Handle potential null values
     page_width = words_df['page_width'].iloc[0]
     page_height = words_df['page_height'].iloc[0]
+    
+    if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
     
     # Group words by line to reconstruct text line by line
     if 'line_num' in words_df.columns:
@@ -68,7 +76,7 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
     else:
         # Fallback: group by vertical position (top coordinate)
         # Use a small tolerance for grouping words on the same line
-        words_df['line_group'] = (words_df['top'] / 10).round().astype(int)
+        words_df['line_group'] = (words_df['top'] / LINE_GROUPING_TOLERANCE).round().astype(int)
         words_df = words_df.sort_values(['line_group', 'left'])
         lines = words_df.groupby('line_group')
     

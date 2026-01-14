@@ -16,6 +16,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 from marker_detection import detect_greeting
 from page_analysis_data import TextMarker
 
+# Test data constants
+CHAR_WIDTH_PIXELS = 10  # Approximate width per character for test data
+WORD_HEIGHT_PIXELS = 20  # Approximate height of words for test data
+
 
 class TestDetectGreeting(unittest.TestCase):
     """Test cases for detect_greeting function."""
@@ -43,8 +47,8 @@ class TestDetectGreeting(unittest.TestCase):
                 'word_num': idx + 1,
                 'left': left,
                 'top': top,
-                'width': len(text) * 10,  # Approximate width
-                'height': 20,
+                'width': len(text) * CHAR_WIDTH_PIXELS,
+                'height': WORD_HEIGHT_PIXELS,
                 'conf': 90,
                 'text': text,
                 'page_width': page_width,
@@ -287,6 +291,42 @@ class TestDetectGreeting(unittest.TestCase):
         # Should return the first greeting (Hallo)
         self.assertEqual(result.raw.lower(), 'hallo')
         self.assertAlmostEqual(result.y_rel, 0.067, places=2)  # 100/1500, not 200/1500
+    
+    def test_missing_required_columns(self):
+        """Test that missing required columns returns found=False."""
+        # DataFrame missing 'page_width' and 'page_height' columns
+        incomplete_data = {
+            'level': [5, 5],
+            'text': ['Dear', 'Sir'],
+            'left': [100, 160],
+            'top': [200, 200],
+        }
+        page_df = pd.DataFrame(incomplete_data)
+        
+        result = detect_greeting(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+        self.assertIsNone(result.x_rel)
+        self.assertIsNone(result.y_rel)
+    
+    def test_null_page_dimensions(self):
+        """Test that null page dimensions returns found=False."""
+        words_data = [
+            ('Dear', 100, 200, 1),
+            ('Sir,', 160, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        # Set page dimensions to None
+        page_df['page_width'] = None
+        page_df['page_height'] = None
+        
+        result = detect_greeting(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+        self.assertIsNone(result.x_rel)
+        self.assertIsNone(result.y_rel)
 
 
 if __name__ == '__main__':
