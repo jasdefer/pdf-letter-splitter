@@ -184,11 +184,134 @@ def _find_first_word_of_match(para_group: pd.DataFrame, match: re.Match, para_te
 
 
 def detect_goodbye(page_df: pd.DataFrame) -> TextMarker:
+    """
+    Detect common letter closing/goodbye phrases in German and English from OCR data.
+    
+    Args:
+        page_df: DataFrame containing OCR data for a single page with columns:
+                 'text', 'left', 'top', 'page_width', 'page_height', 'line_num', etc.
+    
+    Returns:
+        TextMarker with:
+            - found: True if goodbye detected
+            - raw: The matched goodbye text
+            - x_rel: Relative x position (0..1) of goodbye start
+            - y_rel: Relative y position (0..1) of goodbye start
+    """
+    # Handle empty or invalid DataFrame
+    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height']
+    if page_df.empty or not all(col in page_df.columns for col in required_columns):
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    # Goodbye patterns for German and English
+    # These patterns will be matched case-insensitively against reconstructed lines
+    # Note: More specific (multi-word) patterns must come before less specific (single-word) patterns
+    # German patterns handle umlaut variations: ü->ue, ß->ss
+    goodbye_patterns = [
+        # German patterns (multi-word first, then single-word)
+        r'\bmit\s+freundlichen\s+gr(ü|ue)(ß|ss)e?n?\b',  # Mit freundlichen Grüßen/Gruessen
+        r'\bmit\s+besten\s+gr(ü|ue)(ß|ss)e?n?\b',        # Mit besten Grüßen/Gruessen
+        r'\bmit\s+herzlichen\s+gr(ü|ue)(ß|ss)e?n?\b',    # Mit herzlichen Grüßen/Gruessen
+        r'\bfreundliche\s+gr(ü|ue)(ß|ss)e?\b',           # Freundliche Grüße/Gruesse
+        r'\bviele\s+gr(ü|ue)(ß|ss)e?\b',                 # Viele Grüße/Gruesse
+        r'\bliebe\s+gr(ü|ue)(ß|ss)e?\b',                 # Liebe Grüße/Gruesse
+        r'\bbeste\s+gr(ü|ue)(ß|ss)e?\b',                 # Beste Grüße/Gruesse
+        r'\bhochachtungsvoll\b',                          # Hochachtungsvoll
+        # English patterns (multi-word first, then single-word)
+        r'\byours\s+sincerely\b',                         # Yours sincerely
+        r'\byours\s+faithfully\b',                        # Yours faithfully
+        r'\byours\s+truly\b',                             # Yours truly
+        r'\bkind\s+regards\b',                            # Kind regards
+        r'\bbest\s+regards\b',                            # Best regards
+        r'\bwarm\s+regards\b',                            # Warm regards
+        r'\bwarmest\s+regards\b',                         # Warmest regards
+        r'\bsincerely\b',                                 # Sincerely (must come after "yours sincerely")
+        r'\bcordially\b',                                 # Cordially
+        r'\brespectfully\b',                              # Respectfully
+    ]
+    
+    # Filter to word-level elements with non-empty text
+    words_df = page_df[
+        (page_df['level'] == 5) & 
+        (page_df['text'].notna()) & 
+        (page_df['text'].str.strip() != '')
+    ].copy()
+    
+    if words_df.empty:
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    # Get page dimensions (should be consistent across all rows)
+    # Handle potential null values
+    page_width = words_df['page_width'].iloc[0]
+    page_height = words_df['page_height'].iloc[0]
+    
+    if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    # Group words by paragraph to avoid line_num collisions across blocks/paragraphs
+    # Note: line_num is only unique within a paragraph in Tesseract TSV output
+    if all(col in words_df.columns for col in ['page_num', 'block_num', 'par_num', 'line_num']):
+        # Group by paragraph (page_num, block_num, par_num)
+        # Sort within each paragraph by line_num, then left position
+        words_df = words_df.sort_values(['page_num', 'block_num', 'par_num', 'line_num', 'left'])
+        paragraphs = words_df.groupby(['page_num', 'block_num', 'par_num'])
+    else:
+        # Fallback: group by vertical position (top coordinate)
+        # Use a small tolerance for grouping words on the same line
+        words_df['line_group'] = (words_df['top'] / LINE_GROUPING_TOLERANCE).round().astype(int)
+        words_df = words_df.sort_values(['line_group', 'left'])
+        paragraphs = words_df.groupby('line_group')
+    
+    # Search for goodbyes paragraph by paragraph
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check goodbye patterns
+        for pattern in goodbye_patterns:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Found a goodbye! Return full paragraph as raw value
+                return _create_goodbye_marker(para_group, match, para_text, page_width, page_height)
+    
+    # No goodbye found
+    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+
+
+def _create_goodbye_marker(para_group: pd.DataFrame, match: re.Match, para_text: str, 
+                           page_width: float, page_height: float) -> TextMarker:
+    """
+    Create a TextMarker for a detected goodbye.
+    
+    Args:
+        para_group: DataFrame of words in the paragraph
+        match: Regex match object
+        para_text: Reconstructed paragraph text
+        page_width: Page width in pixels
+        page_height: Page height in pixels
+    
+    Returns:
+        TextMarker with goodbye information
+    """
+    # Find the first word of the goodbye in the para_group
+    first_word_idx = _find_first_word_of_match(para_group, match, para_text)
+    
+    if first_word_idx is not None:
+        first_word = para_group.iloc[first_word_idx]
+        x_rel = first_word['left'] / page_width
+        y_rel = first_word['top'] / page_height
+    else:
+        # Fallback: use first word in paragraph
+        first_word = para_group.iloc[0]
+        x_rel = first_word['left'] / page_width
+        y_rel = first_word['top'] / page_height
+    
+    # Store the full paragraph text as raw value for context and debugging
     return TextMarker(
-        found = False,
-        raw = None,
-        x_rel = None,
-        y_rel = None
+        found=True,
+        raw=para_text.strip(),
+        x_rel=float(x_rel),
+        y_rel=float(y_rel)
     )
 
 
