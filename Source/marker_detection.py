@@ -2,7 +2,7 @@
 
 import pandas as pd
 import re
-from typing import Optional
+from typing import Optional, Tuple, List
 from page_analysis_data import LetterPageIndex, TextMarker
 
 # Constants for greeting detection
@@ -33,11 +33,6 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
             - x_rel: Relative x position (0..1) of greeting start
             - y_rel: Relative y position (0..1) of greeting start
     """
-    # Handle empty or invalid DataFrame
-    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height']
-    if page_df.empty or not all(col in page_df.columns for col in required_columns):
-        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
-    
     # Greeting patterns for German and English
     # These patterns will be matched case-insensitively against reconstructed lines
     # Strong patterns: match without restrictions
@@ -59,6 +54,37 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
         r'\bhi\b(?:\s+\S+){1,7},',       # Hi + up to 7 words + comma
     ]
     
+    # Preprocess and group words
+    paragraphs, page_width, page_height = _preprocess_and_group_words(page_df)
+    
+    if paragraphs is None:
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    # Search for greetings using both strong and weak patterns
+    return _search_patterns_in_paragraphs(
+        paragraphs,
+        [strong_greeting_patterns, weak_greeting_patterns],
+        page_width,
+        page_height
+    )
+
+
+def _preprocess_and_group_words(page_df: pd.DataFrame) -> Tuple[Optional['pd.core.groupby.DataFrameGroupBy'], Optional[float], Optional[float]]:
+    """
+    Preprocess OCR data and group words into paragraphs.
+    
+    Args:
+        page_df: DataFrame containing OCR data for a single page
+    
+    Returns:
+        Tuple of (paragraphs_groupby, page_width, page_height) or (None, None, None) if validation fails.
+        paragraphs_groupby is a DataFrameGroupBy object for iterating over paragraphs.
+    """
+    # Handle empty or invalid DataFrame
+    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height']
+    if page_df.empty or not all(col in page_df.columns for col in required_columns):
+        return None, None, None
+    
     # Filter to word-level elements with non-empty text
     words_df = page_df[
         (page_df['level'] == 5) & 
@@ -67,7 +93,7 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
     ].copy()
     
     if words_df.empty:
-        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+        return None, None, None
     
     # Get page dimensions (should be consistent across all rows)
     # Handle potential null values
@@ -75,7 +101,7 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
     page_height = words_df['page_height'].iloc[0]
     
     if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
-        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+        return None, None, None
     
     # Group words by paragraph to avoid line_num collisions across blocks/paragraphs
     # Note: line_num is only unique within a paragraph in Tesseract TSV output
@@ -91,33 +117,13 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
         words_df = words_df.sort_values(['line_group', 'left'])
         paragraphs = words_df.groupby('line_group')
     
-    # Search for greetings paragraph by paragraph
-    for para_key, para_group in paragraphs:
-        # Reconstruct the paragraph text
-        para_text = ' '.join(para_group['text'].astype(str))
-        
-        # Check strong greeting patterns first
-        for pattern in strong_greeting_patterns:
-            match = re.search(pattern, para_text, re.IGNORECASE)
-            if match:
-                # Found a greeting! Return full paragraph as raw value
-                return _create_greeting_marker(para_group, match, para_text, page_width, page_height)
-        
-        # Check weak greeting patterns (with comma constraint)
-        for pattern in weak_greeting_patterns:
-            match = re.search(pattern, para_text, re.IGNORECASE)
-            if match:
-                # Found a greeting! Return full paragraph as raw value
-                return _create_greeting_marker(para_group, match, para_text, page_width, page_height)
-    
-    # No greeting found
-    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    return paragraphs, page_width, page_height
 
 
-def _create_greeting_marker(para_group: pd.DataFrame, match: re.Match, para_text: str, 
-                            page_width: float, page_height: float) -> TextMarker:
+def _create_marker(para_group: pd.DataFrame, match: re.Match, para_text: str, 
+                   page_width: float, page_height: float) -> TextMarker:
     """
-    Create a TextMarker for a detected greeting.
+    Create a TextMarker for a detected text pattern (greeting, goodbye, etc.).
     
     Args:
         para_group: DataFrame of words in the paragraph
@@ -127,9 +133,9 @@ def _create_greeting_marker(para_group: pd.DataFrame, match: re.Match, para_text
         page_height: Page height in pixels
     
     Returns:
-        TextMarker with greeting information
+        TextMarker with detected text information
     """
-    # Find the first word of the greeting in the para_group
+    # Find the first word of the match in the para_group
     first_word_idx = _find_first_word_of_match(para_group, match, para_text)
     
     if first_word_idx is not None:
@@ -183,6 +189,39 @@ def _find_first_word_of_match(para_group: pd.DataFrame, match: re.Match, para_te
     return None
 
 
+def _search_patterns_in_paragraphs(paragraphs: 'pd.core.groupby.DataFrameGroupBy', 
+                                   patterns_list: List[List[str]], 
+                                   page_width: float, 
+                                   page_height: float) -> TextMarker:
+    """
+    Search for text patterns in grouped paragraphs.
+    
+    Args:
+        paragraphs: DataFrameGroupBy object for iterating over paragraphs
+        patterns_list: List of regex pattern lists to search. Each sublist is searched in order.
+        page_width: Page width in pixels
+        page_height: Page height in pixels
+    
+    Returns:
+        TextMarker with match information if found, otherwise TextMarker with found=False
+    """
+    # Search for patterns paragraph by paragraph
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check all pattern lists
+        for patterns in patterns_list:
+            for pattern in patterns:
+                match = re.search(pattern, para_text, re.IGNORECASE)
+                if match:
+                    # Found a match! Return full paragraph as raw value
+                    return _create_marker(para_group, match, para_text, page_width, page_height)
+    
+    # No match found
+    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+
+
 def detect_goodbye(page_df: pd.DataFrame) -> TextMarker:
     """
     Detect common letter closing/goodbye phrases in German and English from OCR data.
@@ -198,11 +237,6 @@ def detect_goodbye(page_df: pd.DataFrame) -> TextMarker:
             - x_rel: Relative x position (0..1) of goodbye start
             - y_rel: Relative y position (0..1) of goodbye start
     """
-    # Handle empty or invalid DataFrame
-    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height']
-    if page_df.empty or not all(col in page_df.columns for col in required_columns):
-        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
-    
     # Goodbye patterns for German and English
     # These patterns will be matched case-insensitively against reconstructed lines
     # Note: More specific (multi-word) patterns must come before less specific (single-word) patterns
@@ -230,88 +264,18 @@ def detect_goodbye(page_df: pd.DataFrame) -> TextMarker:
         r'\brespectfully\b',                              # Respectfully
     ]
     
-    # Filter to word-level elements with non-empty text
-    words_df = page_df[
-        (page_df['level'] == 5) & 
-        (page_df['text'].notna()) & 
-        (page_df['text'].str.strip() != '')
-    ].copy()
+    # Preprocess and group words
+    paragraphs, page_width, page_height = _preprocess_and_group_words(page_df)
     
-    if words_df.empty:
+    if paragraphs is None:
         return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
     
-    # Get page dimensions (should be consistent across all rows)
-    # Handle potential null values
-    page_width = words_df['page_width'].iloc[0]
-    page_height = words_df['page_height'].iloc[0]
-    
-    if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
-        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
-    
-    # Group words by paragraph to avoid line_num collisions across blocks/paragraphs
-    # Note: line_num is only unique within a paragraph in Tesseract TSV output
-    if all(col in words_df.columns for col in ['page_num', 'block_num', 'par_num', 'line_num']):
-        # Group by paragraph (page_num, block_num, par_num)
-        # Sort within each paragraph by line_num, then left position
-        words_df = words_df.sort_values(['page_num', 'block_num', 'par_num', 'line_num', 'left'])
-        paragraphs = words_df.groupby(['page_num', 'block_num', 'par_num'])
-    else:
-        # Fallback: group by vertical position (top coordinate)
-        # Use a small tolerance for grouping words on the same line
-        words_df['line_group'] = (words_df['top'] / LINE_GROUPING_TOLERANCE).round().astype(int)
-        words_df = words_df.sort_values(['line_group', 'left'])
-        paragraphs = words_df.groupby('line_group')
-    
-    # Search for goodbyes paragraph by paragraph
-    for para_key, para_group in paragraphs:
-        # Reconstruct the paragraph text
-        para_text = ' '.join(para_group['text'].astype(str))
-        
-        # Check goodbye patterns
-        for pattern in goodbye_patterns:
-            match = re.search(pattern, para_text, re.IGNORECASE)
-            if match:
-                # Found a goodbye! Return full paragraph as raw value
-                return _create_goodbye_marker(para_group, match, para_text, page_width, page_height)
-    
-    # No goodbye found
-    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
-
-
-def _create_goodbye_marker(para_group: pd.DataFrame, match: re.Match, para_text: str, 
-                           page_width: float, page_height: float) -> TextMarker:
-    """
-    Create a TextMarker for a detected goodbye.
-    
-    Args:
-        para_group: DataFrame of words in the paragraph
-        match: Regex match object
-        para_text: Reconstructed paragraph text
-        page_width: Page width in pixels
-        page_height: Page height in pixels
-    
-    Returns:
-        TextMarker with goodbye information
-    """
-    # Find the first word of the goodbye in the para_group
-    first_word_idx = _find_first_word_of_match(para_group, match, para_text)
-    
-    if first_word_idx is not None:
-        first_word = para_group.iloc[first_word_idx]
-        x_rel = first_word['left'] / page_width
-        y_rel = first_word['top'] / page_height
-    else:
-        # Fallback: use first word in paragraph
-        first_word = para_group.iloc[0]
-        x_rel = first_word['left'] / page_width
-        y_rel = first_word['top'] / page_height
-    
-    # Store the full paragraph text as raw value for context and debugging
-    return TextMarker(
-        found=True,
-        raw=para_text.strip(),
-        x_rel=float(x_rel),
-        y_rel=float(y_rel)
+    # Search for goodbyes
+    return _search_patterns_in_paragraphs(
+        paragraphs,
+        [goodbye_patterns],
+        page_width,
+        page_height
     )
 
 
