@@ -324,7 +324,7 @@ def _detect_labeled_subject(page_df: pd.DataFrame) -> TextMarker:
     # Use capturing group to separate label from potential trailing punctuation
     label_patterns = [
         r'\bBetreff\b\s*:?\s*',     # Betreff or Betreff:
-        r'\bBetr\.?\s*:?\s*',       # Betr. or Betr: or Betr or Betr.:
+        r'\bBetr(\.|\s|:)+',       # Betr. or Betr:
         r'\bSubject\b\s*:?\s*',     # Subject or Subject:
         r'\bRe\s*:\s*',             # Re:
     ]
