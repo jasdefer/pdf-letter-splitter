@@ -28,7 +28,7 @@ class PageAnalysis:
     letter_page_index: LetterPageIndex
     greeting: TextMarker
     goodbye: TextMarker
-    betreff: TextMarker
+    subject: TextMarker
     address_block: TextMarker
 
 
