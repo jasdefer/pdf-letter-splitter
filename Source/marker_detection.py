@@ -2,7 +2,7 @@
 
 import pandas as pd
 import re
-from typing import Optional
+from typing import Optional, Tuple, List
 from page_analysis_data import LetterPageIndex, TextMarker
 
 # Constants for greeting detection
@@ -69,7 +69,7 @@ def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
     )
 
 
-def _preprocess_and_group_words(page_df: pd.DataFrame):
+def _preprocess_and_group_words(page_df: pd.DataFrame) -> Tuple[Optional[pd.core.groupby.DataFrameGroupBy], Optional[float], Optional[float]]:
     """
     Preprocess OCR data and group words into paragraphs.
     
@@ -189,7 +189,10 @@ def _find_first_word_of_match(para_group: pd.DataFrame, match: re.Match, para_te
     return None
 
 
-def _search_patterns_in_paragraphs(paragraphs, patterns_list, page_width: float, page_height: float) -> TextMarker:
+def _search_patterns_in_paragraphs(paragraphs: pd.core.groupby.DataFrameGroupBy, 
+                                   patterns_list: List[List[str]], 
+                                   page_width: float, 
+                                   page_height: float) -> TextMarker:
     """
     Search for text patterns in grouped paragraphs.
     
