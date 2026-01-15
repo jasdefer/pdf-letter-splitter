@@ -279,13 +279,252 @@ def detect_goodbye(page_df: pd.DataFrame) -> TextMarker:
     )
 
 
-def detect_betreff(page_df: pd.DataFrame) -> TextMarker:
-    return TextMarker(
-        found = False,
-        raw = None,
-        x_rel = None,
-        y_rel = None
-    )
+def detect_subject(page_df: pd.DataFrame) -> TextMarker:
+    """
+    Detect the subject/topic of a letter from OCR data.
+    
+    Uses a two-step approach:
+    1. Labeled subject detection: Look for explicit subject labels (Betreff, Subject, Re:, etc.)
+       and extract the subject text that follows.
+    2. Topic keyword detection: If no labeled subject is found, check for common topic keywords
+       that are suitable as filename topics (Rechnung, Invoice, Mahnung, etc.).
+    
+    Args:
+        page_df: DataFrame containing OCR data for a single page with columns:
+                 'text', 'left', 'top', 'page_width', 'page_height', 'line_num', etc.
+    
+    Returns:
+        TextMarker with:
+            - found: True if subject/topic detected
+            - raw: The matched subject text or keyword
+            - x_rel: Relative x position (0..1) of subject start
+            - y_rel: Relative y position (0..1) of subject start
+    """
+    # Step 1: Labeled subject detection
+    labeled_subject = _detect_labeled_subject(page_df)
+    if labeled_subject.found:
+        return labeled_subject
+    
+    # Step 2: Topic keyword detection (fallback)
+    return _detect_topic_keywords(page_df)
+
+
+def _detect_labeled_subject(page_df: pd.DataFrame) -> TextMarker:
+    """
+    Detect explicit subject labels and extract the subject text that follows.
+    
+    Looks for patterns like:
+    - German: Betreff, Betreff:, Betr., Betr:
+    - English: Subject, Subject:, Re:
+    
+    Returns the text following the label as the subject.
+    """
+    # Subject label patterns
+    # Match the label itself, including optional punctuation
+    # Use capturing group to separate label from potential trailing punctuation
+    label_patterns = [
+        r'\bBetreff\b\s*:?\s*',     # Betreff or Betreff:
+        r'\bBetr(\.|\s|:)+',       # Betr. or Betr:
+        r'\bSubject\b\s*:?\s*',     # Subject or Subject:
+        r'\bRe\s*:\s*',             # Re:
+    ]
+    
+    # Preprocess and group words
+    paragraphs, page_width, page_height = _preprocess_and_group_words(page_df)
+    
+    if paragraphs is None:
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    # Search for labeled subject
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check all label patterns
+        for pattern in label_patterns:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Found a label! Extract the subject text that follows
+                label_end = match.end()
+                
+                # Get text after the label in this paragraph (including any trailing whitespace)
+                subject_text_in_para = para_text[label_end:].strip()
+                
+                # Find the first word after the label
+                first_word_after_label_idx = _find_first_word_after_position(
+                    para_group, label_end, para_text
+                )
+                
+                if subject_text_in_para:
+                    # Subject text found in same paragraph
+                    if first_word_after_label_idx is not None:
+                        first_word = para_group.iloc[first_word_after_label_idx]
+                        x_rel = first_word['left'] / page_width
+                        y_rel = first_word['top'] / page_height
+                    else:
+                        # Fallback: use position of the label itself
+                        label_word_idx = _find_first_word_of_match(para_group, match, para_text)
+                        if label_word_idx is not None:
+                            first_word = para_group.iloc[label_word_idx]
+                        else:
+                            first_word = para_group.iloc[0]
+                        x_rel = first_word['left'] / page_width
+                        y_rel = first_word['top'] / page_height
+                    
+                    return TextMarker(
+                        found=True,
+                        raw=subject_text_in_para,
+                        x_rel=float(x_rel),
+                        y_rel=float(y_rel)
+                    )
+                else:
+                    # Label found but no text in same paragraph
+                    # Try to get the next paragraph as subject text
+                    next_para = _get_next_paragraph(paragraphs, para_key)
+                    if next_para is not None:
+                        next_para_text = ' '.join(next_para['text'].astype(str)).strip()
+                        if next_para_text:
+                            first_word = next_para.iloc[0]
+                            x_rel = first_word['left'] / page_width
+                            y_rel = first_word['top'] / page_height
+                            return TextMarker(
+                                found=True,
+                                raw=next_para_text,
+                                x_rel=float(x_rel),
+                                y_rel=float(y_rel)
+                            )
+                    
+                    # Label found but no subject text - return found=False
+                    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+
+
+def _find_first_word_after_position(para_group: pd.DataFrame, char_pos: int, para_text: str) -> Optional[int]:
+    """
+    Find the index of the first word in para_group that starts after the given character position.
+    
+    Args:
+        para_group: DataFrame of words in the paragraph
+        char_pos: Character position in para_text
+        para_text: Reconstructed paragraph text (words joined with single spaces)
+    
+    Returns:
+        Index in para_group of the first word after char_pos, or None if not found
+    """
+    current_pos = 0
+    for idx, (_, word_row) in enumerate(para_group.iterrows()):
+        word_text = str(word_row['text'])
+        word_start = current_pos
+        word_end = current_pos + len(word_text)
+        
+        # Check if this word starts at or after char_pos
+        if word_start >= char_pos:
+            return idx
+        
+        # Account for the single space we added during reconstruction
+        current_pos = word_end + 1
+    
+    return None
+
+
+def _get_next_paragraph(paragraphs: 'pd.core.groupby.DataFrameGroupBy', current_key) -> Optional[pd.DataFrame]:
+    """
+    Get the next paragraph after the current one.
+    
+    Args:
+        paragraphs: DataFrameGroupBy object for iterating over paragraphs
+        current_key: Key of the current paragraph
+    
+    Returns:
+        DataFrame of the next paragraph, or None if not found
+    """
+    found_current = False
+    for para_key, para_group in paragraphs:
+        if found_current:
+            return para_group
+        if para_key == current_key:
+            found_current = True
+    return None
+
+
+def _detect_topic_keywords(page_df: pd.DataFrame) -> TextMarker:
+    """
+    Detect common topic keywords that are suitable as filename topics.
+    
+    This is a conservative fallback when no labeled subject is found.
+    Looks for keywords like: Rechnung, Invoice, Mahnung, etc.
+    
+    Returns a TextMarker for the first matched keyword (not the full paragraph).
+    """
+    # Topic keyword patterns (conservative, curated list)
+    # These are standalone words that typically appear in document subjects
+    topic_keywords = [
+        # German keywords
+        r'\bRechnung\b',
+        r'\bAbrechnung\b',
+        r'\bBeitragsbescheid\b',
+        r'\bSteuerbescheid\b',
+        r'\bBescheid\b',
+        r'\bMahnung\b',
+        r'\bZahlungserinnerung\b',
+        r'\bZahlungsaufforderung\b',
+        r'\bKostenvoranschlag\b',
+        r'\bBestellung\b',
+        r'\bVersicherungsbescheid\b',
+        r'\bLeistungsbescheid\b',
+        r'\bBeitragsmitteilung\b',
+        r'\bRentenbescheid\b',
+        # English keywords
+        r'\bInvoice\b',
+        r'\bBilling\s+statement\b',
+        r'\bPayment\s+reminder\b',
+        r'\bReminder\b',
+        r'\bTax\s+notice\b',
+        r'\bTax\s+assessment\b',
+        r'\bAssessment\s+notice\b',
+    ]
+    
+    # Preprocess and group words
+    paragraphs, page_width, page_height = _preprocess_and_group_words(page_df)
+    
+    if paragraphs is None:
+        return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
+    
+    # Search for topic keywords - return only the matched keyword, not full paragraph
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check all keyword patterns
+        for pattern in topic_keywords:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Found a keyword! Return only the matched keyword text
+                matched_keyword = match.group(0)
+                
+                # Find the first word of the match in the para_group
+                first_word_idx = _find_first_word_of_match(para_group, match, para_text)
+                
+                if first_word_idx is not None:
+                    first_word = para_group.iloc[first_word_idx]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                else:
+                    # Fallback: use first word in paragraph
+                    first_word = para_group.iloc[0]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                
+                return TextMarker(
+                    found=True,
+                    raw=matched_keyword,
+                    x_rel=float(x_rel),
+                    y_rel=float(y_rel)
+                )
+    
+    # No match found
+    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
 
 
 def detect_address_block(page_df: pd.DataFrame) -> TextMarker:

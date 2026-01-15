@@ -13,7 +13,7 @@ import pandas as pd
 # Add Source directory to path to import the marker detection module
 sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 
-from marker_detection import detect_greeting, detect_goodbye
+from marker_detection import detect_greeting, detect_goodbye, detect_subject
 from page_analysis_data import TextMarker
 
 # Test data constants
@@ -836,6 +836,440 @@ class TestDetectGoodbye(unittest.TestCase):
         self.assertEqual(result.raw, 'Mit freundlichen Grüßen,')
         self.assertEqual(result.x_rel, 0.1)
         self.assertEqual(result.y_rel, 0.8)
+
+
+class TestDetectSubject(unittest.TestCase):
+    """Test cases for detect_subject function."""
+    
+    def _create_test_dataframe(self, words_data, page_width=1000, page_height=1500):
+        """
+        Helper to create a minimal OCR DataFrame for testing.
+        
+        Args:
+            words_data: List of tuples (text, left, top, line_num) or (text, left, top, line_num, par_num)
+            page_width: Page width in pixels
+            page_height: Page height in pixels
+        
+        Returns:
+            DataFrame mimicking OCR output
+        """
+        rows = []
+        for idx, word_data in enumerate(words_data):
+            if len(word_data) == 4:
+                text, left, top, line_num = word_data
+                par_num = 1  # Default to paragraph 1
+            else:
+                text, left, top, line_num, par_num = word_data
+            
+            rows.append({
+                'level': 5,  # Word level
+                'page_num': 1,
+                'block_num': 1,
+                'par_num': par_num,
+                'line_num': line_num,
+                'word_num': idx + 1,
+                'left': left,
+                'top': top,
+                'width': len(text) * CHAR_WIDTH_PIXELS,
+                'height': WORD_HEIGHT_PIXELS,
+                'conf': 90,
+                'text': text,
+                'page_width': page_width,
+                'page_height': page_height,
+            })
+        return pd.DataFrame(rows)
+    
+    # Step 1: Labeled subject detection tests
+    
+    def test_detect_labeled_subject_betreff_colon(self):
+        """Test detection of 'Betreff:' with subject text."""
+        words_data = [
+            ('Betreff:', 100, 200, 1),
+            ('Rechnung', 200, 200, 1),
+            ('April', 300, 200, 1),
+            ('2024', 380, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIsNotNone(result.raw)
+        self.assertEqual(result.raw, 'Rechnung April 2024')
+        self.assertEqual(result.x_rel, 0.2)  # 200/1000 (start of "Rechnung")
+        self.assertAlmostEqual(result.y_rel, 0.133, places=2)  # 200/1500
+    
+    def test_detect_labeled_subject_betreff_no_colon(self):
+        """Test detection of 'Betreff' without colon."""
+        words_data = [
+            ('Betreff', 100, 200, 1),
+            ('Mahnung', 200, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Mahnung')
+        self.assertEqual(result.x_rel, 0.2)  # 200/1000
+    
+    def test_detect_labeled_subject_betr_dot(self):
+        """Test detection of 'Betr.' with subject text."""
+        words_data = [
+            ('Betr.', 100, 200, 1),
+            ('Ihre', 180, 200, 1),
+            ('Bestellung', 230, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Ihre Bestellung')
+        self.assertEqual(result.x_rel, 0.18)  # 180/1000
+    
+    def test_detect_labeled_subject_betr_colon(self):
+        """Test detection of 'Betr:' with subject text."""
+        words_data = [
+            ('Betr:', 100, 200, 1),
+            ('Steuerbescheid', 180, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Steuerbescheid')
+        self.assertEqual(result.x_rel, 0.18)  # 180/1000
+    
+    def test_detect_labeled_subject_subject_colon(self):
+        """Test detection of 'Subject:' with subject text."""
+        words_data = [
+            ('Subject:', 100, 200, 1),
+            ('Invoice', 200, 200, 1),
+            ('Payment', 280, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Invoice Payment')
+        self.assertEqual(result.x_rel, 0.2)  # 200/1000
+    
+    def test_detect_labeled_subject_subject_no_colon(self):
+        """Test detection of 'Subject' without colon."""
+        words_data = [
+            ('Subject', 100, 200, 1),
+            ('Tax', 200, 200, 1),
+            ('Assessment', 250, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Tax Assessment')
+        self.assertEqual(result.x_rel, 0.2)  # 200/1000
+    
+    def test_detect_labeled_subject_re_colon(self):
+        """Test detection of 'Re:' with subject text."""
+        words_data = [
+            ('Re:', 100, 200, 1),
+            ('Your', 160, 200, 1),
+            ('application', 220, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Your application')
+        self.assertEqual(result.x_rel, 0.16)  # 160/1000
+    
+    def test_detect_labeled_subject_next_line(self):
+        """Test detection when subject text is on next line."""
+        words_data = [
+            ('Betreff:', 100, 200, 1, 1),  # Label in paragraph 1
+            ('Rechnung', 100, 220, 1, 2),  # Subject in paragraph 2
+            ('März', 200, 220, 1, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Rechnung März')
+        self.assertEqual(result.x_rel, 0.1)  # 100/1000 (start of next paragraph)
+        self.assertAlmostEqual(result.y_rel, 0.147, places=2)  # 220/1500
+    
+    def test_detect_labeled_subject_case_insensitive(self):
+        """Test that labeled subject detection is case-insensitive."""
+        words_data = [
+            ('BETREFF:', 100, 200, 1),
+            ('Important', 200, 200, 1),
+            ('Notice', 300, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, 'Important Notice')
+    
+    def test_detect_labeled_subject_only_label_no_text(self):
+        """Test that only a label without text returns found=False."""
+        words_data = [
+            ('Betreff:', 100, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+    
+    # Step 2: Topic keyword detection tests
+    
+    def test_detect_topic_keyword_rechnung(self):
+        """Test detection of topic keyword 'Rechnung'."""
+        words_data = [
+            ('Ihre', 100, 200, 1),
+            ('Rechnung', 160, 200, 1),
+            ('vom', 260, 200, 1),
+            ('15.04.2024', 320, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Rechnung', result.raw)
+        # Position should be at the matched keyword "Rechnung"
+        self.assertEqual(result.x_rel, 0.16)  # Position of "Rechnung" (160/1000)
+        self.assertAlmostEqual(result.y_rel, 0.133, places=2)
+    
+    def test_detect_topic_keyword_invoice(self):
+        """Test detection of topic keyword 'Invoice'."""
+        words_data = [
+            ('Invoice', 100, 200, 1),
+            ('Number', 180, 200, 1),
+            ('12345', 270, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Invoice', result.raw)
+    
+    def test_detect_topic_keyword_mahnung(self):
+        """Test detection of topic keyword 'Mahnung'."""
+        words_data = [
+            ('Zweite', 100, 200, 1),
+            ('Mahnung', 180, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Mahnung', result.raw)
+    
+    def test_detect_topic_keyword_steuerbescheid(self):
+        """Test detection of topic keyword 'Steuerbescheid'."""
+        words_data = [
+            ('Ihr', 100, 200, 1),
+            ('Steuerbescheid', 150, 200, 1),
+            ('2023', 300, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Steuerbescheid', result.raw)
+    
+    def test_detect_topic_keyword_bescheid(self):
+        """Test detection of topic keyword 'Bescheid'."""
+        words_data = [
+            ('Bescheid', 100, 200, 1),
+            ('über', 200, 200, 1),
+            ('Leistungen', 260, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Bescheid', result.raw)
+    
+    def test_detect_topic_keyword_zahlungserinnerung(self):
+        """Test detection of topic keyword 'Zahlungserinnerung'."""
+        words_data = [
+            ('Zahlungserinnerung', 100, 200, 1),
+            ('Kundennummer', 280, 200, 1),
+            ('54321', 420, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Zahlungserinnerung', result.raw)
+    
+    def test_detect_topic_keyword_billing_statement(self):
+        """Test detection of topic keyword 'Billing statement'."""
+        words_data = [
+            ('Monthly', 100, 200, 1),
+            ('Billing', 180, 200, 1),
+            ('statement', 260, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Billing', result.raw)
+        self.assertIn('statement', result.raw)
+    
+    def test_detect_topic_keyword_payment_reminder(self):
+        """Test detection of topic keyword 'Payment reminder'."""
+        words_data = [
+            ('Payment', 100, 200, 1),
+            ('reminder', 200, 200, 1),
+            ('notice', 290, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('Payment', result.raw)
+        self.assertIn('reminder', result.raw)
+    
+    def test_detect_topic_keyword_case_insensitive(self):
+        """Test that topic keyword detection is case-insensitive."""
+        words_data = [
+            ('RECHNUNG', 100, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('RECHNUNG', result.raw)
+    
+    # Priority tests: labeled subject takes precedence over keywords
+    
+    def test_labeled_subject_takes_precedence(self):
+        """Test that labeled subject is detected even if keywords are present."""
+        words_data = [
+            ('Betreff:', 100, 200, 1, 1),
+            ('Wichtige', 200, 200, 1, 1),
+            ('Mitteilung', 300, 200, 1, 1),
+            ('Rechnung', 100, 220, 1, 2),  # Keyword in different paragraph
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        # Should return the labeled subject, not the keyword
+        self.assertEqual(result.raw, 'Wichtige Mitteilung')
+        self.assertNotEqual(result.raw, 'Rechnung')
+    
+    # Edge cases
+    
+    def test_no_subject_found(self):
+        """Test that no subject returns found=False with null fields."""
+        words_data = [
+            ('This', 100, 200, 1),
+            ('is', 150, 200, 1),
+            ('some', 190, 200, 1),
+            ('random', 250, 200, 1),
+            ('text', 330, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+        self.assertIsNone(result.x_rel)
+        self.assertIsNone(result.y_rel)
+    
+    def test_empty_dataframe(self):
+        """Test that empty DataFrame returns found=False."""
+        page_df = pd.DataFrame()
+        
+        result = detect_subject(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+        self.assertIsNone(result.x_rel)
+        self.assertIsNone(result.y_rel)
+    
+    def test_missing_required_columns(self):
+        """Test that missing required columns returns found=False."""
+        incomplete_data = {
+            'level': [5, 5],
+            'text': ['Betreff:', 'Test'],
+            'left': [100, 200],
+            'top': [200, 200],
+        }
+        page_df = pd.DataFrame(incomplete_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw)
+    
+    def test_null_page_dimensions(self):
+        """Test that null page dimensions returns found=False."""
+        words_data = [
+            ('Betreff:', 100, 200, 1),
+            ('Test', 200, 200, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        page_df['page_width'] = None
+        page_df['page_height'] = None
+        
+        result = detect_subject(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_multiple_keywords_returns_first(self):
+        """Test that if multiple keywords exist, the first one is returned."""
+        words_data = [
+            ('Rechnung', 100, 100, 1, 1),  # First keyword
+            ('und', 200, 100, 1, 1),
+            ('Mahnung', 100, 200, 1, 2),  # Second keyword
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        # Should return the first keyword paragraph
+        self.assertIn('Rechnung', result.raw)
+        self.assertAlmostEqual(result.y_rel, 0.067, places=2)  # 100/1500, not 200/1500
+    
+    def test_relative_position_calculation(self):
+        """Test that x_rel and y_rel are correctly calculated."""
+        page_width = 2000
+        page_height = 3000
+        words_data = [
+            ('Betreff:', 500, 900, 1),
+            ('Test', 700, 900, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=page_width, page_height=page_height)
+        
+        result = detect_subject(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.x_rel, 0.35)  # 700/2000 (start of subject text)
+        self.assertEqual(result.y_rel, 0.3)   # 900/3000
 
 
 if __name__ == '__main__':

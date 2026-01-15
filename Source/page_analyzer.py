@@ -6,7 +6,7 @@ from marker_detection import (
     detect_letter_page_index,
     detect_greeting,
     detect_goodbye,
-    detect_betreff,
+    detect_subject,
     detect_address_block
 )
 
@@ -30,7 +30,7 @@ def analyze_pages(ocr_df: pd.DataFrame) -> list[PageAnalysis]:
             letter_page_index=detect_letter_page_index(page_df),
             greeting=detect_greeting(page_df),
             goodbye=detect_goodbye(page_df),
-            betreff=detect_betreff(page_df),
+            subject=detect_subject(page_df),
             address_block=detect_address_block(page_df)
         )
         
