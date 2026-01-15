@@ -455,7 +455,7 @@ def _detect_topic_keywords(page_df: pd.DataFrame) -> TextMarker:
     This is a conservative fallback when no labeled subject is found.
     Looks for keywords like: Rechnung, Invoice, Mahnung, etc.
     
-    Returns a TextMarker for the first matched keyword.
+    Returns a TextMarker for the first matched keyword (not the full paragraph).
     """
     # Topic keyword patterns (conservative, curated list)
     # These are standalone words that typically appear in document subjects
@@ -491,13 +491,40 @@ def _detect_topic_keywords(page_df: pd.DataFrame) -> TextMarker:
     if paragraphs is None:
         return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
     
-    # Search for topic keywords
-    return _search_patterns_in_paragraphs(
-        paragraphs,
-        [topic_keywords],
-        page_width,
-        page_height
-    )
+    # Search for topic keywords - return only the matched keyword, not full paragraph
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check all keyword patterns
+        for pattern in topic_keywords:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Found a keyword! Return only the matched keyword text
+                matched_keyword = match.group(0)
+                
+                # Find the first word of the match in the para_group
+                first_word_idx = _find_first_word_of_match(para_group, match, para_text)
+                
+                if first_word_idx is not None:
+                    first_word = para_group.iloc[first_word_idx]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                else:
+                    # Fallback: use first word in paragraph
+                    first_word = para_group.iloc[0]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                
+                return TextMarker(
+                    found=True,
+                    raw=matched_keyword,
+                    x_rel=float(x_rel),
+                    y_rel=float(y_rel)
+                )
+    
+    # No match found
+    return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
 
 
 def detect_address_block(page_df: pd.DataFrame) -> TextMarker:
