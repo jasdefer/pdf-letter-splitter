@@ -1669,6 +1669,67 @@ class TestDetectAddressBlock(unittest.TestCase):
         self.assertLessEqual(result.line_count, 5)
         # Line1 should not be included
         self.assertNotIn('Line1', result.extracted_name or '')
+    
+    def test_detect_address_block_with_ocr_native_structure(self):
+        """Test detection using OCR-native hierarchy with realistic data."""
+        # This test uses real OCR data structure with block_num, par_num, line_num
+        # to ensure the implementation correctly handles the OCR engine's layout analysis
+        rows = [
+            # Page-level (level 1)
+            {'level': 1, 'page_num': 1, 'block_num': 0, 'par_num': 0, 'line_num': 0, 'word_num': 0,
+             'left': 0, 'top': 0, 'width': 1242, 'height': 1755, 'conf': -1.0, 'text': '',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Block 7 - Address block
+            # Line 1: "*k4000""
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 1, 'word_num': 1,
+             'left': 422, 'top': 371, 'width': 52, 'height': 11, 'conf': 79.090668, 'text': '"*k4000"""',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Line 2: MyCompany GmbH
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 2, 'word_num': 1,
+             'left': 171, 'top': 390, 'width': 70, 'height': 15, 'conf': 91.679695, 'text': 'MyCompany',
+             'page_width': 1242, 'page_height': 1755},
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 2, 'word_num': 2,
+             'left': 248, 'top': 390, 'width': 54, 'height': 15, 'conf': 96.494873, 'text': 'GmbH',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Line 3: Blumengarten 2
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 3, 'word_num': 1,
+             'left': 170, 'top': 412, 'width': 111, 'height': 18, 'conf': 91.335503, 'text': 'Blumengarten',
+             'page_width': 1242, 'page_height': 1755},
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 3, 'word_num': 2,
+             'left': 288, 'top': 412, 'width': 19, 'height': 14, 'conf': 96.766068, 'text': '2',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Line 4: 22041 Hamburg (ZIP + City - the anchor)
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 4, 'word_num': 1,
+             'left': 170, 'top': 434, 'width': 51, 'height': 14, 'conf': 96.503525, 'text': '22041',
+             'page_width': 1242, 'page_height': 1755},
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 4, 'word_num': 2,
+             'left': 228, 'top': 434, 'width': 77, 'height': 18, 'conf': 96.04438, 'text': 'Hamburg',
+             'page_width': 1242, 'page_height': 1755},
+        ]
+        
+        page_df = pd.DataFrame(rows)
+        result = detect_address_block(page_df)
+        
+        # The address should be detected
+        self.assertTrue(result.found, "Address block should be detected using OCR-native structure")
+        
+        # Verify extracted components
+        self.assertEqual(result.extracted_zip, '22041', "ZIP code should be extracted correctly")
+        self.assertEqual(result.extracted_city, 'Hamburg', "City should be extracted correctly")
+        self.assertEqual(result.extracted_street, 'Blumengarten 2', "Street should be extracted correctly")
+        self.assertIn('MyCompany', result.extracted_name, "Company name should be in extracted_name")
+        self.assertIn('GmbH', result.extracted_name, "GmbH should be in extracted_name")
+        
+        # Verify line count (MyCompany GmbH, Blumengarten 2, 22041 Hamburg = 3 lines)
+        self.assertEqual(result.line_count, 3, "Should count 3 lines (name, street, zip+city)")
+        
+        # Verify position is within recipient zone
+        self.assertLess(result.x_rel, 0.5, "x_rel should be in left 50%")
+        self.assertLess(result.y_rel, 0.3, "y_rel should be in top 30%")
 
 
 if __name__ == '__main__':
