@@ -574,53 +574,31 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
         (words_df['top'] <= top_30_percent) &
         (words_df['left'] <= left_50_percent)
     ].copy()
-    
+
     if recipient_zone_df.empty:
         return AddressBlock(found=False)
     
     # Step 2: Use OCR-native hierarchy to reconstruct lines
-    # Check if structural columns are available
-    has_structural_cols = all(col in recipient_zone_df.columns for col in ['page_num', 'block_num', 'par_num', 'line_num'])
+    # Use OCR-native line structure
+    # Sort by block, paragraph, line, then left position
+    recipient_zone_df = recipient_zone_df.sort_values(['block_num', 'par_num', 'line_num', 'left'])
     
-    if has_structural_cols:
-        # Use OCR-native line structure
-        # Sort by block, paragraph, line, then left position
-        recipient_zone_df = recipient_zone_df.sort_values(['block_num', 'par_num', 'line_num', 'left'])
-        
-        # Group by the structural hierarchy to reconstruct lines
-        lines = []
-        for (page_num, block_num, par_num, line_num), line_words in recipient_zone_df.groupby(['page_num', 'block_num', 'par_num', 'line_num'], sort=True):
-            line_words = line_words.sort_values('left')
-            line_text = ' '.join(line_words['text'].astype(str))
-            line_left = line_words['left'].min()
-            line_top = line_words['top'].min()
-            lines.append({
-                'text': line_text,
-                'left': line_left,
-                'top': line_top,
-                'block_num': block_num,
-                'par_num': par_num,
-                'line_num': line_num,
-                'words_df': line_words
-            })
-    else:
-        # Fallback: Use coordinate-based grouping if structural columns are missing
-        recipient_zone_df = recipient_zone_df.sort_values(['top', 'left'])
-        recipient_zone_df['line_group'] = (recipient_zone_df['top'] / LINE_GROUPING_TOLERANCE).round().astype(int)
-        
-        lines = []
-        for line_group_id, line_words in recipient_zone_df.groupby('line_group', sort=True):
-            line_words = line_words.sort_values('left')
-            line_text = ' '.join(line_words['text'].astype(str))
-            line_left = line_words['left'].min()
-            line_top = line_words['top'].min()
-            lines.append({
-                'text': line_text,
-                'left': line_left,
-                'top': line_top,
-                'line_group_id': line_group_id,
-                'words_df': line_words
-            })
+    # Group by the structural hierarchy to reconstruct lines
+    lines = []
+    for (page_num, block_num, par_num, line_num), line_words in recipient_zone_df.groupby(['page_num', 'block_num', 'par_num', 'line_num'], sort=True):
+        line_words = line_words.sort_values('left')
+        line_text = ' '.join(line_words['text'].astype(str))
+        line_left = line_words['left'].min()
+        line_top = line_words['top'].min()
+        lines.append({
+            'text': line_text,
+            'left': line_left,
+            'top': line_top,
+            'block_num': block_num,
+            'par_num': par_num,
+            'line_num': line_num,
+            'words_df': line_words
+        })
     
     if not lines:
         return AddressBlock(found=False)
