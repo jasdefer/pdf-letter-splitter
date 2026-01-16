@@ -628,8 +628,8 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
             # Check if line has similar left alignment
             if abs(candidate_line['left'] - anchor_left) <= left_alignment_tolerance:
                 address_lines.insert(0, candidate_line)  # Insert at beginning to maintain order
-                # Limit to 4 lines above the anchor (2-4 lines total including anchor)
-                if len(address_lines) >= 4:
+                # Limit to 2 lines above the anchor (2-3 lines total including anchor)
+                if len(address_lines) >= 2:
                     break
             else:
                 # Stop if alignment breaks
