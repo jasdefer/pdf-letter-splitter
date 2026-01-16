@@ -625,50 +625,48 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
     if not lines:
         return AddressBlock(found=False)
     
-    # Step 3: Find ZIP City anchor pattern
+    # Step 3: Find ZIP City anchor pattern and validate address block
     # German ZIP format: 5 digits followed by city name
     zip_city_pattern = r'\b(\d{5})\s+([A-ZÄÖÜa-zäöüß][A-ZÄÖÜa-zäöüß\s\-]+)'
-    
-    anchor_line_idx = None
-    zip_match = None
-    
-    for idx, line in enumerate(lines):
-        match = re.search(zip_city_pattern, line['text'])
-        if match:
-            anchor_line_idx = idx
-            zip_match = match
-            break
-    
-    if anchor_line_idx is None or zip_match is None:
-        return AddressBlock(found=False)
-    
-    # Extract ZIP and City from anchor
-    extracted_zip = zip_match.group(1)
-    extracted_city = zip_match.group(2).strip()
-    
-    # Step 4: Group lines above the anchor with similar left alignment
-    anchor_line = lines[anchor_line_idx]
-    anchor_left = anchor_line['left']
     
     # Define tolerance for left alignment (allow some variation)
     left_alignment_tolerance = 30  # pixels
     
-    # Find lines above the anchor with similar left alignment
-    address_lines = []
-    for idx in range(anchor_line_idx - 1, -1, -1):
-        line = lines[idx]
-        # Check if line has similar left alignment
-        if abs(line['left'] - anchor_left) <= left_alignment_tolerance:
-            address_lines.insert(0, line)  # Insert at beginning to maintain order
-            # Limit to 4 lines above the anchor (2-4 lines total including anchor)
-            if len(address_lines) >= 4:
+    # Iterate through all ZIP candidates and validate each one
+    # Don't stop at the first ZIP match - sender addresses may appear above recipient
+    for anchor_line_idx, line in enumerate(lines):
+        match = re.search(zip_city_pattern, line['text'])
+        if not match:
+            continue
+        
+        # Found a ZIP pattern - now validate it has a coherent address block
+        anchor_line = line
+        anchor_left = anchor_line['left']
+        
+        # Step 4: Try to group lines above this anchor with similar left alignment
+        address_lines = []
+        for idx in range(anchor_line_idx - 1, -1, -1):
+            candidate_line = lines[idx]
+            # Check if line has similar left alignment
+            if abs(candidate_line['left'] - anchor_left) <= left_alignment_tolerance:
+                address_lines.insert(0, candidate_line)  # Insert at beginning to maintain order
+                # Limit to 4 lines above the anchor (2-4 lines total including anchor)
+                if len(address_lines) >= 4:
+                    break
+            else:
+                # Stop if alignment breaks
                 break
-        else:
-            # Stop if alignment breaks
+        
+        # Validate: We need at least 1 line above the anchor for a valid address block
+        if len(address_lines) >= 1:
+            # Valid address block found! Extract components and return
+            extracted_zip = match.group(1)
+            extracted_city = match.group(2).strip()
+            
+            # Successfully validated this ZIP candidate - use it
             break
-    
-    # We need at least 1 line above the anchor for a valid address
-    if len(address_lines) == 0:
+    else:
+        # No valid address block found among all ZIP candidates
         return AddressBlock(found=False)
     
     # Step 5: Extract address components
