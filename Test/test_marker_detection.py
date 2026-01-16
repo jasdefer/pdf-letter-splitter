@@ -1730,6 +1730,69 @@ class TestDetectAddressBlock(unittest.TestCase):
         # Verify position is within recipient zone
         self.assertLess(result.x_rel, 0.5, "x_rel should be in left 50%")
         self.assertLess(result.y_rel, 0.3, "y_rel should be in top 30%")
+    
+    def test_skip_sender_address_find_recipient(self):
+        """Test that sender address with ZIP is skipped in favor of recipient address."""
+        # Simulate a page with sender address at top-right and recipient at top-left
+        # Sender appears first in reading order but has no aligned lines above it
+        words_data = [
+            # Sender address (top-right, outside recipient zone or misaligned)
+            # Just the ZIP line with no lines above it
+            ('12345', 400, 100, 1),  # Sender ZIP (right side, outside left 50% or will fail validation)
+            ('SenderCity', 480, 100, 1),
+            
+            # Recipient address (top-left, well-formed with name and street above ZIP)
+            ('Jane', 100, 120, 2),
+            ('Doe', 150, 120, 2),
+            ('Musterstraße', 100, 140, 3),
+            ('10', 230, 140, 3),
+            ('54321', 100, 160, 4),  # Recipient ZIP (should be found)
+            ('RecipientCity', 180, 160, 4),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should find the recipient address, not the sender
+        self.assertTrue(result.found, "Should find recipient address")
+        self.assertEqual(result.extracted_zip, '54321', "Should extract recipient ZIP, not sender")
+        self.assertEqual(result.extracted_city, 'RecipientCity', "Should extract recipient city")
+        self.assertIn('Jane', result.extracted_name or '', "Should include recipient name")
+        self.assertEqual(result.extracted_street, 'Musterstraße 10', "Should extract recipient street")
+    
+    def test_multiple_zip_candidates_pick_valid_one(self):
+        """Test that when multiple ZIP patterns exist, we pick the one with valid address block."""
+        # First ZIP has no aligned lines above (invalid - different left position)
+        # Second ZIP has proper address block structure (valid)
+        words_data = [
+            # Invalid ZIP candidate - line above has different alignment
+            ('Unrelated', 50, 80, 1),  # Different left position (50 vs 100)
+            ('text', 120, 80, 1),
+            ('99999', 100, 100, 2),  # ZIP - line above is not aligned (50 vs 100)
+            ('InvalidCity', 180, 100, 2),
+            
+            # Some other text
+            ('Other', 50, 120, 3),
+            ('content', 100, 120, 3),
+            
+            # Valid ZIP candidate - has proper name and street above with same alignment
+            ('Max', 100, 150, 4),
+            ('Mustermann', 150, 150, 4),
+            ('Hauptstraße', 100, 170, 5),
+            ('42', 220, 170, 5),
+            ('12345', 100, 190, 6),  # Valid ZIP
+            ('Berlin', 180, 190, 6),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should find the valid address block
+        self.assertTrue(result.found, "Should find the valid address block")
+        self.assertEqual(result.extracted_zip, '12345', "Should extract the valid ZIP")
+        self.assertEqual(result.extracted_city, 'Berlin', "Should extract the valid city")
+        self.assertEqual(result.extracted_name, 'Max Mustermann', "Should extract name from valid block")
+        self.assertEqual(result.extracted_street, 'Hauptstraße 42', "Should extract street from valid block")
 
 
 if __name__ == '__main__':
