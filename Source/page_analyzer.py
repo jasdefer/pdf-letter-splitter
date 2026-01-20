@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import pandas as pd
+from typing import Optional
 from page_analysis_data import PageAnalysis
 from marker_detection import (
     detect_letter_page_index,
@@ -11,7 +12,7 @@ from marker_detection import (
 )
 
 
-def analyze_pages(ocr_df: pd.DataFrame) -> list[PageAnalysis]:
+def analyze_pages(ocr_df: pd.DataFrame, target_zip: Optional[str] = None) -> list[PageAnalysis]:
     if ocr_df.empty:
         return []
     
@@ -31,7 +32,7 @@ def analyze_pages(ocr_df: pd.DataFrame) -> list[PageAnalysis]:
             greeting=detect_greeting(page_df),
             goodbye=detect_goodbye(page_df),
             subject=detect_subject(page_df),
-            address_block=detect_address_block(page_df)
+            address_block=detect_address_block(page_df, target_zip=target_zip)
         )
         
         page_analysis_list.append(page_analysis)

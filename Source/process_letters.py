@@ -256,6 +256,11 @@ def main():
         action='store_true',
         help='Enable verbose debug logging and dump OCR output to ocr_output.tsv'
     )
+    parser.add_argument(
+        '--target-zip',
+        type=str,
+        help='Target recipient ZIP code to prioritize when multiple addresses are found'
+    )
     
     args = parser.parse_args()
     
@@ -288,7 +293,7 @@ def main():
         
         if args.page_data:
             logger.info("Analyzing pages...")
-            pages = analyze_pages(result_df)
+            pages = analyze_pages(result_df, target_zip=args.target_zip)
             page_data_path = Path(args.page_data)
             write_page_analysis_to_json(pages, page_data_path)
             logger.info(f"Page data written to {page_data_path}")

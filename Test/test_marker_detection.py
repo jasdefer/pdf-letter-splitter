@@ -1793,6 +1793,99 @@ class TestDetectAddressBlock(unittest.TestCase):
         self.assertEqual(result.extracted_city, 'Berlin', "Should extract the valid city")
         self.assertEqual(result.extracted_name, 'Max Mustermann', "Should extract name from valid block")
         self.assertEqual(result.extracted_street, 'Hauptstraße 42', "Should extract street from valid block")
+    
+    def test_prefer_address_with_most_lines(self):
+        """Test that when multiple valid addresses exist, the one with most lines is selected."""
+        words_data = [
+            # First address: 2 lines above ZIP (3 total)
+            ('Jane', 100, 80, 1),
+            ('Doe', 150, 80, 1),
+            ('Street1', 100, 100, 2),
+            ('10', 180, 100, 2),
+            ('11111', 100, 120, 3),
+            ('CityA', 180, 120, 3),
+            
+            # Gap of 60+ pixels between addresses
+            
+            # Second address: 3 lines above ZIP (4 total) - should be preferred
+            ('Max', 100, 200, 4),
+            ('Mustermann', 150, 200, 4),
+            ('Company', 100, 220, 5),
+            ('GmbH', 180, 220, 5),
+            ('Street2', 100, 240, 6),
+            ('20', 180, 240, 6),
+            ('22222', 100, 260, 7),
+            ('CityB', 180, 260, 7),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should prefer the address with more lines (4 vs 3)
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_zip, '22222', "Should select address with most lines")
+        self.assertEqual(result.line_count, 4, "Should have 4 lines total")
+        self.assertIn('Max', result.extracted_name or '', "Should extract name from larger block")
+        self.assertIn('Company', result.extracted_name or '', "Should include company in name")
+    
+    def test_target_zip_prioritization(self):
+        """Test that target_zip parameter prioritizes matching address over line count."""
+        words_data = [
+            # First address: 4 lines total, ZIP=11111
+            ('Company', 100, 80, 1),
+            ('GmbH', 180, 80, 1),
+            ('Max', 100, 100, 2),
+            ('Mustermann', 150, 100, 2),
+            ('Street1', 100, 120, 3),
+            ('10', 180, 120, 3),
+            ('11111', 100, 140, 4),
+            ('CityA', 180, 140, 4),
+            
+            # Gap of 60+ pixels between addresses
+            
+            # Second address: 3 lines total, ZIP=22222 (target)
+            ('Jane', 100, 220, 5),
+            ('Doe', 150, 220, 5),
+            ('Street2', 100, 240, 6),
+            ('20', 180, 240, 6),
+            ('22222', 100, 260, 7),
+            ('CityB', 180, 260, 7),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        # Without target_zip, should prefer first (more lines)
+        result_no_target = detect_address_block(page_df)
+        self.assertEqual(result_no_target.extracted_zip, '11111', "Without target, should prefer more lines")
+        
+        # With target_zip, should prefer matching ZIP even with fewer lines
+        result_with_target = detect_address_block(page_df, target_zip='22222')
+        self.assertEqual(result_with_target.extracted_zip, '22222', "With target, should prefer matching ZIP")
+        self.assertEqual(result_with_target.line_count, 3, "Target address has 3 lines")
+    
+    def test_vertical_gap_limit(self):
+        """Test that lines with excessive vertical gap are not included in address block."""
+        words_data = [
+            # Line far above (should be excluded due to vertical gap)
+            ('FarAbove', 100, 50, 1),
+            ('Text', 180, 50, 1),
+            
+            # Proper address block (close together)
+            ('Max', 100, 180, 2),
+            ('Mustermann', 150, 180, 2),
+            ('Street', 100, 200, 3),
+            ('10', 180, 200, 3),
+            ('12345', 100, 220, 4),
+            ('City', 180, 220, 4),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should not include the far above line
+        self.assertTrue(result.found)
+        self.assertEqual(result.line_count, 3, "Should have 3 lines (name, street, ZIP+city)")
+        self.assertNotIn('FarAbove', result.extracted_name or '', "Should not include text with large gap")
+        self.assertIn('Max', result.extracted_name or '', "Should include properly spaced lines")
 
 
 if __name__ == '__main__':

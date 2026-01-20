@@ -527,7 +527,7 @@ def _detect_topic_keywords(page_df: pd.DataFrame) -> TextMarker:
     return TextMarker(found=False, raw=None, x_rel=None, y_rel=None)
 
 
-def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
+def detect_address_block(page_df: pd.DataFrame, target_zip: Optional[str] = None) -> AddressBlock:
     """
     Detect and extract address information from the recipient window area.
     
@@ -535,11 +535,13 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
     1. Filter to "Recipient Zone" (Top 30%, Left 50% of page)
     2. Use OCR-native hierarchy (block_num, par_num, line_num) to reconstruct lines
     3. Search for "ZIP City" anchor pattern (e.g., "12345 Berlin")
-    4. Group lines above the anchor with similar left alignment
-    5. Extract name (top lines), street (line above ZIP), ZIP, and city
+    4. Group lines above the anchor with similar left alignment and vertical proximity
+    5. Select best candidate: prioritize target_zip match, then most lines, then topmost
+    6. Extract name (top lines), street (line above ZIP), ZIP, and city
     
     Args:
         page_df: DataFrame containing OCR data for a single page
+        target_zip: Optional target ZIP code to prioritize in case of multiple matches
     
     Returns:
         AddressBlock with extracted address information or found=False if no address detected
@@ -607,11 +609,14 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
     # German ZIP format: 5 digits followed by city name
     zip_city_pattern = r'\b(\d{5})\s+([A-ZÄÖÜa-zäöüß][A-ZÄÖÜa-zäöüß\s\-]+)'
     
-    # Define tolerance for left alignment (allow some variation)
+    # Define tolerances
     left_alignment_tolerance = 30  # pixels
+    vertical_gap_tolerance = 50  # pixels - maximum vertical distance between consecutive lines
+    
+    # Collect all valid address block candidates
+    candidates = []
     
     # Iterate through all ZIP candidates and validate each one
-    # Don't stop at the first ZIP match - sender addresses may appear above recipient
     for anchor_line_idx, line in enumerate(lines):
         match = re.search(zip_city_pattern, line['text'])
         if not match:
@@ -620,16 +625,28 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
         # Found a ZIP pattern - now validate it has a coherent address block
         anchor_line = line
         anchor_left = anchor_line['left']
+        anchor_top = anchor_line['top']
         
         # Step 4: Try to group lines above this anchor with similar left alignment
         address_lines = []
+        prev_top = anchor_top
+        
         for idx in range(anchor_line_idx - 1, -1, -1):
             candidate_line = lines[idx]
+            
+            # Check vertical proximity - line should be close to the previous line  
+            # (not just close to the anchor, but close to the line we just added)
+            vertical_gap = prev_top - candidate_line['top']
+            if vertical_gap > vertical_gap_tolerance:
+                # Too far above the previous line, stop searching
+                break
+            
             # Check if line has similar left alignment
             if abs(candidate_line['left'] - anchor_left) <= left_alignment_tolerance:
                 address_lines.insert(0, candidate_line)  # Insert at beginning to maintain order
-                # Limit to 2 lines above the anchor (2-3 lines total including anchor)
-                if len(address_lines) >= 2:
+                prev_top = candidate_line['top']
+                # Limit to 4 lines above the anchor
+                if len(address_lines) >= 4:
                     break
             else:
                 # Stop if alignment breaks
@@ -637,17 +654,44 @@ def detect_address_block(page_df: pd.DataFrame) -> AddressBlock:
         
         # Validate: We need at least 1 line above the anchor for a valid address block
         if len(address_lines) >= 1:
-            # Valid address block found! Extract components and return
+            # Valid address block found! Store as a candidate
             extracted_zip = match.group(1)
             extracted_city = match.group(2).strip()
             
-            # Successfully validated this ZIP candidate - use it
-            break
-    else:
-        # No valid address block found among all ZIP candidates
+            # Calculate line count and position
+            line_count = len(address_lines) + 1
+            first_line = address_lines[0]
+            
+            candidates.append({
+                'address_lines': address_lines,
+                'anchor_line': anchor_line,
+                'extracted_zip': extracted_zip,
+                'extracted_city': extracted_city,
+                'line_count': line_count,
+                'first_line': first_line,
+                'anchor_top': anchor_top
+            })
+    
+    # No valid address block found
+    if not candidates:
         return AddressBlock(found=False)
     
-    # Step 5: Extract address components
+    # Step 5: Select the best candidate
+    # Priority: 1) Matches target_zip, 2) Most lines, 3) Topmost (first in reading order)
+    def candidate_score(candidate):
+        zip_match = 1 if target_zip and candidate['extracted_zip'] == target_zip else 0
+        # Return tuple: (zip_match, line_count, -anchor_top)
+        # Higher zip_match and line_count are better, lower anchor_top (higher on page) is better
+        return (zip_match, candidate['line_count'], -candidate['anchor_top'])
+    
+    best_candidate = max(candidates, key=candidate_score)
+    
+    # Step 6: Extract address components from best candidate
+    address_lines = best_candidate['address_lines']
+    extracted_zip = best_candidate['extracted_zip']
+    extracted_city = best_candidate['extracted_city']
+    line_count = best_candidate['line_count']
+    first_line = best_candidate['first_line']
     # Last line in address_lines (just above anchor) is the street
     extracted_street = address_lines[-1]['text'].strip()
     
