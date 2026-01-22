@@ -866,9 +866,10 @@ def _has_inline_indicator(para_text: str, date_match: re.Match) -> bool:
     text_before = para_text[:date_match.start()].strip()
     
     # Check if the text immediately before ends with a date indicator
-    # Pattern: word ending with "datum" or "date" (case-insensitive), or "vom"/"dated"
-    # followed by optional colon and whitespace
-    inline_indicator_pattern = r'(?:\w*datum|\w*date|vom|dated)\s*:?\s*$'
+    # Pattern: Common German/English date label words, or specific keywords
+    # Matches: Datum, Date, Lieferdatum, Rechnungsdatum, Leistungsdatum, vom, dated
+    # Does not match: mandatum, candidate, etc.
+    inline_indicator_pattern = r'(?:\b(?:liefer|rechnungs|leistungs|versand)?datum\b|\b(?:invoice|delivery|billing)?date\b|vom|dated)\s*:?\s*$'
     
     return bool(re.search(inline_indicator_pattern, text_before, re.IGNORECASE))
 
@@ -893,7 +894,10 @@ def _has_above_indicator(prev_para_group: pd.DataFrame, current_para_group: pd.D
     prev_para_text = ' '.join(prev_para_group['text'].astype(str)).strip()
     
     # Check if previous paragraph contains a date indicator keyword
-    indicator_pattern = r'^\s*(?:\w*datum|\w*date|vom|dated)\s*:?\s*$'
+    # Pattern: Common German/English date label words
+    # Matches: Datum, Date, Lieferdatum, Rechnungsdatum, Leistungsdatum, vom, dated
+    # Does not match: mandatum, candidate, etc.
+    indicator_pattern = r'^\s*(?:\b(?:liefer|rechnungs|leistungs|versand)?datum\b|\b(?:invoice|delivery|billing)?date\b|vom|dated)\s*:?\s*$'
     if not re.search(indicator_pattern, prev_para_text, re.IGNORECASE):
         return False
     
