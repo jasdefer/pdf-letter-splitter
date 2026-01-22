@@ -90,7 +90,7 @@ class TransitionScorer:
         # +1000: Current page LetterPageIndex.current == 1
         if curr_page.letter_page_index.found and curr_page.letter_page_index.current == 1:
             # Check if it's in the middle of the page (y_rel > MIDDLE_PAGE_THRESHOLD)
-            if curr_page.letter_page_index.y_rel and curr_page.letter_page_index.y_rel > MIDDLE_PAGE_THRESHOLD:
+            if curr_page.letter_page_index.y_rel and curr_page.letter_page_index.y_rel > MIDDLE_PAGE_THRESHOLD and curr_page.letter_page_index.y_rel < 1 - MIDDLE_PAGE_THRESHOLD:
                 score += 200
                 factors.append("New Index in middle (+200)")
             else:
@@ -146,18 +146,18 @@ class TransitionScorer:
         
         # 3. Logical Sequence Penalties (Negative Weights)
         
-        # -350: Address Block is found below the Subject or Greeting
+        # -150: Address Block is found below the Subject or Greeting
         if (curr_page.address_block.found and curr_page.address_block.y_rel is not None):
             # Check if address is below subject
             if (curr_page.subject.found and curr_page.subject.y_rel is not None and
                 curr_page.address_block.y_rel > curr_page.subject.y_rel):
-                score -= 350
-                factors.append("Address below Subject (-350)")
+                score -= 150
+                factors.append("Address below Subject (-150)")
             # Check if address is below greeting
             elif (curr_page.greeting.found and curr_page.greeting.y_rel is not None and
                   curr_page.address_block.y_rel > curr_page.greeting.y_rel):
-                score -= 350
-                factors.append("Address below Greeting (-350)")
+                score -= 150
+                factors.append("Address below Greeting (-150)")
         
         # -200: Subject is found below the Greeting
         if (curr_page.subject.found and curr_page.subject.y_rel is not None and
