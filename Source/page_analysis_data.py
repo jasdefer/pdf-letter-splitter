@@ -12,6 +12,8 @@ class LetterPageIndex:
     current: Optional[int] = None
     total: Optional[int] = None
     raw: Optional[str] = None
+    x_rel: Optional[float] = None
+    y_rel: Optional[float] = None
 
 
 @dataclass
