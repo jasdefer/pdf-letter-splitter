@@ -74,17 +74,8 @@ def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
                 current_page = int(match.group(1))
                 total_pages = int(match.group(2))
                 
-                # Find position of the match
-                first_word_idx = _find_first_word_of_match(para_group, match, para_text)
-                if first_word_idx is not None:
-                    first_word = para_group.iloc[first_word_idx]
-                    x_rel = first_word['left'] / page_width
-                    y_rel = first_word['top'] / page_height
-                else:
-                    # Fallback to first word in paragraph
-                    first_word = para_group.iloc[0]
-                    x_rel = first_word['left'] / page_width
-                    y_rel = first_word['top'] / page_height
+                # Calculate relative position of the match
+                x_rel, y_rel = _calculate_match_position(para_group, match, para_text, page_width, page_height)
                 
                 return LetterPageIndex(
                     found=True,
@@ -108,17 +99,8 @@ def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
                 next_page = int(match.group(1))
                 current_page = next_page - 1
                 
-                # Find position of the match
-                first_word_idx = _find_first_word_of_match(para_group, match, para_text)
-                if first_word_idx is not None:
-                    first_word = para_group.iloc[first_word_idx]
-                    x_rel = first_word['left'] / page_width
-                    y_rel = first_word['top'] / page_height
-                else:
-                    # Fallback to first word in paragraph
-                    first_word = para_group.iloc[0]
-                    x_rel = first_word['left'] / page_width
-                    y_rel = first_word['top'] / page_height
+                # Calculate relative position of the match
+                x_rel, y_rel = _calculate_match_position(para_group, match, para_text, page_width, page_height)
                 
                 return LetterPageIndex(
                     found=True,
@@ -250,6 +232,33 @@ def _create_marker(para_group: pd.DataFrame, match: re.Match, para_text: str,
     Returns:
         TextMarker with detected text information
     """
+    # Calculate relative position of the match
+    x_rel, y_rel = _calculate_match_position(para_group, match, para_text, page_width, page_height)
+    
+    # Store the full paragraph text as raw value for context and debugging
+    return TextMarker(
+        found=True,
+        raw=para_text.strip(),
+        x_rel=float(x_rel),
+        y_rel=float(y_rel)
+    )
+
+
+def _calculate_match_position(para_group: pd.DataFrame, match: re.Match, para_text: str,
+                              page_width: float, page_height: float) -> Tuple[float, float]:
+    """
+    Calculate the relative position (x_rel, y_rel) of a regex match within a paragraph.
+    
+    Args:
+        para_group: DataFrame of words in the paragraph
+        match: Regex match object
+        para_text: Reconstructed paragraph text
+        page_width: Page width in pixels
+        page_height: Page height in pixels
+    
+    Returns:
+        Tuple of (x_rel, y_rel) - relative position (0..1) of the match start
+    """
     # Find the first word of the match in the para_group
     first_word_idx = _find_first_word_of_match(para_group, match, para_text)
     
@@ -263,13 +272,7 @@ def _create_marker(para_group: pd.DataFrame, match: re.Match, para_text: str,
         x_rel = first_word['left'] / page_width
         y_rel = first_word['top'] / page_height
     
-    # Store the full paragraph text as raw value for context and debugging
-    return TextMarker(
-        found=True,
-        raw=para_text.strip(),
-        x_rel=float(x_rel),
-        y_rel=float(y_rel)
-    )
+    return x_rel, y_rel
 
 
 def _find_first_word_of_match(para_group: pd.DataFrame, match: re.Match, para_text: str) -> Optional[int]:
