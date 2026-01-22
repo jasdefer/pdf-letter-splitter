@@ -26,6 +26,7 @@ except ImportError as e:
 
 from page_analyzer import analyze_pages
 from page_analysis_data import write_page_analysis_to_json
+from splitter import group_pages_into_letters
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +298,20 @@ def main():
             page_data_path = Path(args.page_data)
             write_page_analysis_to_json(pages, page_data_path)
             logger.info(f"Page data written to {page_data_path}")
+            
+            # Group pages into letters using the splitter
+            logger.info("Grouping pages into letters...")
+            letters = group_pages_into_letters(pages)
+            logger.info(f"Identified {len(letters)} letter(s) from {len(pages)} page(s)")
+            
+            # Log letter details
+            for i, letter in enumerate(letters, start=1):
+                page_nums = [p.scan_page_num for p in letter.pages]
+                logger.info(
+                    f"Letter {i}: Pages {page_nums} "
+                    f"(Date: {letter.master_date or 'N/A'}, "
+                    f"Subject: {letter.master_subject or 'N/A'})"
+                )
         
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=args.verbose)
