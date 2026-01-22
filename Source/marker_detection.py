@@ -1178,7 +1178,8 @@ def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressB
         SenderBlock with extracted sender information or found=False if no sender detected
     """
     # Handle empty or invalid DataFrame
-    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height', 'height']
+    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height', 'height', 
+                        'block_num', 'par_num', 'line_num', 'page_num']
     if page_df.empty or not all(col in page_df.columns for col in required_columns):
         return SenderBlock(found=False)
     
@@ -1263,7 +1264,8 @@ def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressB
     # German ZIP format: 5 digits
     zip_pattern = r'\b(\d{5})\b'
     # Street pattern: text followed by number (with optional letter)
-    street_pattern = r'([A-Za-zäöüÄÖÜß]+(?:\s+[A-Za-zäöüÄÖÜß]+)*)\s+(\d+[a-zA-Z]?)\b'
+    # Handles hyphenated names, apostrophes, and periods in abbreviations
+    street_pattern = r'([A-Za-zäöüÄÖÜß]+(?:[\s\-\.\']+[A-Za-zäöüÄÖÜß]+)*)\s+(\d+[a-zA-Z]?)\b'
     
     for line in lines:
         line_text = line['text']
@@ -1282,7 +1284,8 @@ def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressB
         text_after_zip = re.sub(r'^[,|•·\-/\s]+', '', text_after_zip)
         
         # City is typically the remaining text after ZIP (before any other delimiters)
-        city_match = re.match(r'^([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\s\-]*)', text_after_zip)
+        # Handles hyphenated names, apostrophes, numbers, and periods
+        city_match = re.match(r'^([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\s\-\.\'0-9]*)', text_after_zip)
         extracted_city = city_match.group(1).strip() if city_match else text_after_zip.strip()
         
         # Extract text before ZIP (contains name and possibly street)

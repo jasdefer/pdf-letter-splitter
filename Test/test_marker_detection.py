@@ -2444,9 +2444,11 @@ class TestDetectSenderLine(unittest.TestCase):
         self.assertIsNone(result.zip_code)
         self.assertIsNone(result.city)
     
-    def test_no_sender_line_found_no_small_text(self):
-        """Test that no sender line returns found=False when all text is large."""
-        # All text is normal size (no small font)
+    def test_no_sender_line_found_when_median_filters_all(self):
+        """Test sender line detection when font height filter is applied."""
+        # All text is normal size (height=12), but median filtering still allows detection
+        # since the filter uses <= median. This test validates that the algorithm works
+        # with uniform font sizes (edge case).
         words_data = [
             ('Company', 100, 50, 1, 12),
             ('Name,', 180, 50, 1, 12),
@@ -2459,11 +2461,8 @@ class TestDetectSenderLine(unittest.TestCase):
         
         result = detect_sender_line(page_df)
         
-        # Might still find it depending on median, but let's test edge case
-        # where median is 12 and filter uses <= median
-        # Actually, this should still work since <= median is allowed
-        # Let me adjust the test
-        self.assertTrue(result.found)  # Should still find it
+        # Should still find it since <= median allows text with median height
+        self.assertTrue(result.found)
     
     def test_sender_line_outside_roi(self):
         """Test that sender line outside ROI is not detected."""
