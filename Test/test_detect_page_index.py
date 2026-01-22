@@ -197,6 +197,83 @@ class TestDetectLetterPageIndex(unittest.TestCase):
         self.assertEqual(result.current, 2)
         self.assertEqual(result.total, 3)
     
+    # ========== OCR Robustness: Handle misread separators ==========
+    
+    def test_detect_pipe_separator_instead_of_slash(self):
+        """Test detection when OCR misreads '/' as '|' (pipe)."""
+        words_data = [
+            ('Seite', 100, 1400, 1),
+            ('2|3', 160, 1400, 1),  # OCR read slash as pipe
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_letter_page_index(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.current, 2)
+        self.assertEqual(result.total, 3)
+        self.assertIn('Seite', result.raw)
+    
+    def test_detect_capital_i_separator_instead_of_slash(self):
+        """Test detection when OCR misreads '/' as 'I' (capital i)."""
+        words_data = [
+            ('Page', 100, 1400, 1),
+            ('3', 160, 1400, 1),
+            ('I', 180, 1400, 1),  # OCR read slash as capital I
+            ('5', 200, 1400, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_letter_page_index(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.current, 3)
+        self.assertEqual(result.total, 5)
+    
+    def test_detect_lowercase_l_separator_instead_of_slash(self):
+        """Test detection when OCR misreads '/' as 'l' (lowercase L)."""
+        words_data = [
+            ('Seite', 100, 1400, 1),
+            ('1', 160, 1400, 1),
+            ('l', 180, 1400, 1),  # OCR read slash as lowercase l
+            ('4', 200, 1400, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_letter_page_index(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.current, 1)
+        self.assertEqual(result.total, 4)
+    
+    def test_detect_no_space_around_separator(self):
+        """Test detection of 'Seite 2/2' with no spaces around slash."""
+        words_data = [
+            ('Seite', 100, 1400, 1),
+            ('2/2', 160, 1400, 1),  # No spaces around slash
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_letter_page_index(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.current, 2)
+        self.assertEqual(result.total, 2)
+    
+    def test_detect_mixed_spacing_and_misread_separator(self):
+        """Test detection with OCR misread separator and spacing variations."""
+        words_data = [
+            ('Page', 100, 1400, 1),
+            ('7|10', 160, 1400, 1),  # No spaces and pipe instead of slash
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_letter_page_index(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.current, 7)
+        self.assertEqual(result.total, 10)
+    
     # ========== Priority 2: Continuation Patterns ==========
     
     def test_detect_german_fortsetzung_auf_pattern(self):

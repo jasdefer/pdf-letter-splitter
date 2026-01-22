@@ -36,13 +36,14 @@ def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
     # Priority 1: Total Information patterns (with both current and total)
     # Match patterns like "Seite 2 von 5", "Page 2 of 5", "Seite 2/5", "Page 2 / 5"
     # Case insensitive, flexible spacing around separators
+    # Note: OCR engines often misread '/' as '|', 'I', or 'l', so we match all these characters
     total_info_patterns = [
         # German patterns
-        r'\bSeite\s+(\d+)\s+von\s+(\d+)\b',      # Seite X von Y
-        r'\bSeite\s+(\d+)\s*/\s*(\d+)\b',        # Seite X/Y or Seite X / Y
+        r'\bSeite\s+(\d+)\s+von\s+(\d+)\b',                    # Seite X von Y
+        r'\bSeite\s+(\d+)\s*[/|Il]\s*(\d+)\b',                 # Seite X/Y, Seite X|Y, Seite X I Y, etc.
         # English patterns
-        r'\bPage\s+(\d+)\s+of\s+(\d+)\b',        # Page X of Y
-        r'\bPage\s+(\d+)\s*/\s*(\d+)\b',         # Page X/Y or Page X / Y
+        r'\bPage\s+(\d+)\s+of\s+(\d+)\b',                      # Page X of Y
+        r'\bPage\s+(\d+)\s*[/|Il]\s*(\d+)\b',                  # Page X/Y, Page X|Y, Page X I Y, etc.
     ]
     
     # Priority 2: Continuation/Partial Information patterns (current page only, implicit)
