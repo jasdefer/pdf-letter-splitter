@@ -3,7 +3,8 @@
 import pandas as pd
 import re
 from typing import Optional, Tuple, List
-from page_analysis_data import LetterPageIndex, TextMarker, AddressBlock
+from datetime import datetime
+from page_analysis_data import LetterPageIndex, TextMarker, AddressBlock, DateMarker
 
 # Constants for greeting detection
 LINE_GROUPING_TOLERANCE = 10  # Pixels tolerance for grouping words on the same line
@@ -843,3 +844,243 @@ def detect_address_block(page_df: pd.DataFrame, target_zip: Optional[str] = None
         extracted_city=extracted_city,
         line_count=line_count
     )
+
+
+def detect_date(page_df: pd.DataFrame) -> DateMarker:
+    """
+    Detect the letter's creation date from OCR data.
+    
+    Searches only in the top 40% of the page for date patterns in multiple formats.
+    Supports both German and English date formats and keyword indicators.
+    
+    Date formats supported:
+    - DD.MM.YYYY (e.g., 12.05.2023)
+    - DD. Month YYYY (e.g., 12. Mai 2023, 5. May 2023)
+    - Month DD, YYYY (e.g., May 12, 2023)
+    - YYYY-MM-DD (e.g., 2023-05-12)
+    
+    Keyword indicators: "Datum", "Date", "vom", "dated"
+    
+    Heuristics for selecting best candidate when multiple dates found:
+    1. Prefer dates with keyword indicators in same paragraph or paragraph immediately above
+    2. Tie-breaker: highest x position (furthest right)
+    3. Final tie-breaker: lowest y position (furthest top)
+    
+    Args:
+        page_df: DataFrame containing OCR data for a single page with columns:
+                 'text', 'left', 'top', 'page_width', 'page_height', etc.
+    
+    Returns:
+        DateMarker with:
+            - found: True if date detected
+            - raw: The matched date text
+            - date_value: Parsed datetime object
+            - x_rel: Relative x position (0..1) of date start
+            - y_rel: Relative y position (0..1) of date start
+    """
+    # Handle empty or invalid DataFrame
+    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height']
+    if page_df.empty or not all(col in page_df.columns for col in required_columns):
+        return DateMarker(found=False)
+    
+    # Filter to word-level elements with non-empty text
+    words_df = page_df[
+        (page_df['level'] == 5) & 
+        (page_df['text'].notna()) & 
+        (page_df['text'].str.strip() != '')
+    ].copy()
+    
+    if words_df.empty:
+        return DateMarker(found=False)
+    
+    # Get page dimensions
+    page_width = words_df['page_width'].iloc[0]
+    page_height = words_df['page_height'].iloc[0]
+    
+    if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
+        return DateMarker(found=False)
+    
+    # Filter to top 40% of page
+    top_40_percent = page_height * 0.4
+    top_zone_df = words_df[words_df['top'] <= top_40_percent].copy()
+    
+    if top_zone_df.empty:
+        return DateMarker(found=False)
+    
+    # Group words by paragraph
+    if all(col in top_zone_df.columns for col in ['page_num', 'block_num', 'par_num', 'line_num']):
+        top_zone_df = top_zone_df.sort_values(['page_num', 'block_num', 'par_num', 'line_num', 'left'])
+        paragraphs = top_zone_df.groupby(['page_num', 'block_num', 'par_num'])
+    else:
+        # Fallback: group by vertical position
+        top_zone_df['line_group'] = (top_zone_df['top'] / LINE_GROUPING_TOLERANCE).round().astype(int)
+        top_zone_df = top_zone_df.sort_values(['line_group', 'left'])
+        paragraphs = top_zone_df.groupby('line_group')
+    
+    # Date patterns with flexible whitespace
+    # Month names for multilingual support
+    german_months = r'(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember|Maerz)'
+    english_months = r'(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)'
+    
+    date_patterns = [
+        # DD.MM.YYYY with flexible spacing (e.g., 12.05.2023, 12 . 05 . 2023)
+        (r'\b(\d{1,2})\s*\.\s*(\d{1,2})\s*\.\s*(\d{4})\b', 'DD.MM.YYYY'),
+        # DD. Month YYYY (e.g., 12. Mai 2023, 5. May 2023)
+        (rf'\b(\d{{1,2}})\s*\.\s*({german_months}|{english_months})\s+(\d{{4}})\b', 'DD.Month.YYYY'),
+        # Month DD, YYYY (e.g., May 12, 2023)
+        (rf'\b({english_months})\s+(\d{{1,2}}),?\s+(\d{{4}})\b', 'Month.DD.YYYY'),
+        # YYYY-MM-DD (e.g., 2023-05-12)
+        (r'\b(\d{4})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\b', 'YYYY-MM-DD'),
+    ]
+    
+    # Keyword indicators
+    indicator_patterns = [
+        r'\bDatum\b',
+        r'\bDate\b',
+        r'\bvom\b',
+        r'\bdated\b',
+    ]
+    
+    # Collect all date candidates
+    candidates = []
+    para_list = list(paragraphs)
+    
+    for idx, (para_key, para_group) in enumerate(para_list):
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check for keyword indicators in this paragraph
+        has_indicator = any(re.search(pattern, para_text, re.IGNORECASE) for pattern in indicator_patterns)
+        
+        # Check for keyword indicators in previous paragraph
+        has_indicator_above = False
+        if idx > 0:
+            prev_para_key, prev_para_group = para_list[idx - 1]
+            prev_para_text = ' '.join(prev_para_group['text'].astype(str))
+            has_indicator_above = any(re.search(pattern, prev_para_text, re.IGNORECASE) for pattern in indicator_patterns)
+        
+        # Search for date patterns
+        for pattern, format_name in date_patterns:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Try to parse the date
+                parsed_date = _parse_date_from_match(match, format_name)
+                if parsed_date is not None:
+                    # Calculate position
+                    first_word_idx = _find_first_word_of_match(para_group, match, para_text)
+                    if first_word_idx is not None:
+                        first_word = para_group.iloc[first_word_idx]
+                        x_rel = first_word['left'] / page_width
+                        y_rel = first_word['top'] / page_height
+                    else:
+                        first_word = para_group.iloc[0]
+                        x_rel = first_word['left'] / page_width
+                        y_rel = first_word['top'] / page_height
+                    
+                    candidates.append({
+                        'raw': match.group(0),
+                        'date_value': parsed_date,
+                        'x_rel': x_rel,
+                        'y_rel': y_rel,
+                        'has_indicator': has_indicator or has_indicator_above,
+                    })
+                    # Only take first match per paragraph
+                    break
+    
+    # No dates found
+    if not candidates:
+        return DateMarker(found=False)
+    
+    # Select best candidate using heuristics
+    def candidate_score(candidate):
+        # Prefer candidates with indicators
+        indicator_score = 1 if candidate['has_indicator'] else 0
+        # Higher x position (furthest right) is better
+        x_score = candidate['x_rel']
+        # Lower y position (furthest top) is better, so negate
+        y_score = -candidate['y_rel']
+        return (indicator_score, x_score, y_score)
+    
+    best_candidate = max(candidates, key=candidate_score)
+    
+    return DateMarker(
+        found=True,
+        raw=best_candidate['raw'],
+        date_value=best_candidate['date_value'],
+        x_rel=float(best_candidate['x_rel']),
+        y_rel=float(best_candidate['y_rel'])
+    )
+
+
+def _parse_date_from_match(match: re.Match, format_name: str) -> Optional[datetime]:
+    """
+    Parse a datetime object from a regex match based on the format.
+    
+    Args:
+        match: Regex match object
+        format_name: Format identifier string
+    
+    Returns:
+        datetime object or None if parsing fails
+    """
+    try:
+        if format_name == 'DD.MM.YYYY':
+            day = int(match.group(1))
+            month = int(match.group(2))
+            year = int(match.group(3))
+            return datetime(year, month, day)
+        
+        elif format_name == 'DD.Month.YYYY':
+            day = int(match.group(1))
+            month_name = match.group(2)
+            year = int(match.group(3))
+            month = _parse_month_name(month_name)
+            if month is None:
+                return None
+            return datetime(year, month, day)
+        
+        elif format_name == 'Month.DD.YYYY':
+            month_name = match.group(1)
+            day = int(match.group(2))
+            year = int(match.group(3))
+            month = _parse_month_name(month_name)
+            if month is None:
+                return None
+            return datetime(year, month, day)
+        
+        elif format_name == 'YYYY-MM-DD':
+            year = int(match.group(1))
+            month = int(match.group(2))
+            day = int(match.group(3))
+            return datetime(year, month, day)
+        
+        return None
+    except (ValueError, OverflowError):
+        # Invalid date (e.g., 32.13.2023)
+        return None
+
+
+def _parse_month_name(month_name: str) -> Optional[int]:
+    """
+    Parse month name (German or English) to month number.
+    
+    Args:
+        month_name: Month name in German or English (full or abbreviated)
+    
+    Returns:
+        Month number (1-12) or None if not recognized
+    """
+    month_map = {
+        # German months
+        'januar': 1, 'februar': 2, 'märz': 3, 'maerz': 3, 'april': 4,
+        'mai': 5, 'juni': 6, 'juli': 7, 'august': 8,
+        'september': 9, 'oktober': 10, 'november': 11, 'dezember': 12,
+        # English months (full)
+        'january': 1, 'february': 2, 'march': 3, 'april': 4,
+        'may': 5, 'june': 6, 'july': 7, 'august': 8,
+        'september': 9, 'october': 10, 'november': 11, 'december': 12,
+        # English months (abbreviated)
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+        'jun': 6, 'jul': 7, 'aug': 8,
+        'sep': 9, 'sept': 9, 'oct': 10, 'nov': 11, 'dec': 12,
+    }
+    return month_map.get(month_name.lower())

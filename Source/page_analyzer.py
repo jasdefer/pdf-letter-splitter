@@ -8,7 +8,8 @@ from marker_detection import (
     detect_greeting,
     detect_goodbye,
     detect_subject,
-    detect_address_block
+    detect_address_block,
+    detect_date
 )
 
 
@@ -32,7 +33,8 @@ def analyze_pages(ocr_df: pd.DataFrame, target_zip: Optional[str] = None) -> lis
             greeting=detect_greeting(page_df),
             goodbye=detect_goodbye(page_df),
             subject=detect_subject(page_df),
-            address_block=detect_address_block(page_df, target_zip=target_zip)
+            address_block=detect_address_block(page_df, target_zip=target_zip),
+            date=detect_date(page_df)
         )
         
         page_analysis_list.append(page_analysis)

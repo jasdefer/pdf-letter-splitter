@@ -3,6 +3,7 @@
 from dataclasses import dataclass, asdict
 from typing import Optional
 from pathlib import Path
+from datetime import datetime
 import json
 
 
@@ -37,6 +38,15 @@ class AddressBlock:
 
 
 @dataclass
+class DateMarker:
+    found: bool = False
+    raw: Optional[str] = None
+    date_value: Optional[datetime] = None
+    x_rel: Optional[float] = None
+    y_rel: Optional[float] = None
+
+
+@dataclass
 class PageAnalysis:
     scan_page_num: int
     letter_page_index: LetterPageIndex
@@ -44,6 +54,7 @@ class PageAnalysis:
     goodbye: TextMarker
     subject: TextMarker
     address_block: AddressBlock
+    date: DateMarker
 
 
 def write_page_analysis_to_json(page_analysis_list: list[PageAnalysis], output_path: Path) -> None:

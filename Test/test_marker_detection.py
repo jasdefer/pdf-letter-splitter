@@ -9,12 +9,13 @@ import sys
 import unittest
 from pathlib import Path
 import pandas as pd
+from datetime import datetime
 
 # Add Source directory to path to import the marker detection module
 sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 
-from marker_detection import detect_greeting, detect_goodbye, detect_subject, detect_address_block
-from page_analysis_data import TextMarker, AddressBlock
+from marker_detection import detect_greeting, detect_goodbye, detect_subject, detect_address_block, detect_date
+from page_analysis_data import TextMarker, AddressBlock, DateMarker
 
 # Test data constants
 CHAR_WIDTH_PIXELS = 10  # Approximate width per character for test data
@@ -1886,6 +1887,267 @@ class TestDetectAddressBlock(unittest.TestCase):
         self.assertEqual(result.line_count, 3, "Should have 3 lines (name, street, ZIP+city)")
         self.assertNotIn('FarAbove', result.extracted_name or '', "Should not include text with large gap")
         self.assertIn('Max', result.extracted_name or '', "Should include properly spaced lines")
+
+
+class TestDetectDate(unittest.TestCase):
+    """Test cases for detect_date function."""
+    
+    def _create_test_dataframe(self, words_data, page_width=1000, page_height=1500):
+        """
+        Helper to create a minimal OCR DataFrame for testing.
+        
+        Args:
+            words_data: List of tuples (text, left, top, line_num) or (text, left, top, line_num, par_num)
+            page_width: Page width in pixels
+            page_height: Page height in pixels
+        
+        Returns:
+            DataFrame mimicking OCR output
+        """
+        rows = []
+        for idx, word_data in enumerate(words_data):
+            if len(word_data) == 4:
+                text, left, top, line_num = word_data
+                par_num = 1  # Default to paragraph 1
+            else:
+                text, left, top, line_num, par_num = word_data
+            
+            rows.append({
+                'level': 5,  # Word level
+                'page_num': 1,
+                'block_num': 1,
+                'par_num': par_num,
+                'line_num': line_num,
+                'word_num': idx + 1,
+                'left': left,
+                'top': top,
+                'width': len(text) * CHAR_WIDTH_PIXELS,
+                'height': WORD_HEIGHT_PIXELS,
+                'conf': 90,
+                'text': text,
+                'page_width': page_width,
+                'page_height': page_height,
+            })
+        return pd.DataFrame(rows)
+    
+    def test_detect_german_date_with_datum_prefix(self):
+        """Test detection of German date with 'Datum:' prefix."""
+        words_data = [
+            # Header paragraph with Datum label
+            ('Datum:', 100, 100, 1, 1),
+            ('12.05.2023', 200, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, '12.05.2023')
+        self.assertIsNotNone(result.date_value)
+        self.assertEqual(result.date_value.year, 2023)
+        self.assertEqual(result.date_value.month, 5)
+        self.assertEqual(result.date_value.day, 12)
+        self.assertAlmostEqual(result.x_rel, 0.2, places=2)  # 200/1000
+        self.assertAlmostEqual(result.y_rel, 0.067, places=2)  # 100/1500
+    
+    def test_detect_date_right_aligned_header(self):
+        """Test detection of date right-aligned in header without prefix."""
+        words_data = [
+            # Some header text on left
+            ('Company', 100, 100, 1, 1),
+            ('Name', 180, 100, 1, 1),
+            # Date on right side of header
+            ('15.03.2024', 800, 100, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, '15.03.2024')
+        self.assertIsNotNone(result.date_value)
+        self.assertEqual(result.date_value.year, 2024)
+        self.assertEqual(result.date_value.month, 3)
+        self.assertEqual(result.date_value.day, 15)
+        self.assertAlmostEqual(result.x_rel, 0.8, places=2)  # 800/1000
+    
+    def test_detect_date_in_footer_ignored(self):
+        """Test that dates in footer (below top 40%) are ignored."""
+        words_data = [
+            # Date in footer (well below 40% of page height = 600)
+            ('Date:', 100, 1000, 1, 1),  # 1000/1500 = 66.7% from top
+            ('25.12.2023', 180, 1000, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        # Date should not be found because it's below top 40%
+        self.assertFalse(result.found)
+    
+    def test_detect_date_corrupted_spacing(self):
+        """Test detection of date with corrupted spacing (e.g., OCR artifacts)."""
+        words_data = [
+            # Date with extra spaces (corrupted OCR output)
+            ('12', 100, 100, 1, 1),
+            ('.', 130, 100, 1, 1),
+            ('05', 150, 100, 1, 1),
+            ('.', 180, 100, 1, 1),
+            ('2023', 200, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # The raw text will contain spaces due to how words are joined
+        self.assertIn('12', result.raw)
+        self.assertIn('05', result.raw)
+        self.assertIn('2023', result.raw)
+        self.assertIsNotNone(result.date_value)
+        self.assertEqual(result.date_value.year, 2023)
+        self.assertEqual(result.date_value.month, 5)
+        self.assertEqual(result.date_value.day, 12)
+    
+    def test_detect_english_date_month_dd_yyyy(self):
+        """Test detection of English date format 'Month DD, YYYY'."""
+        words_data = [
+            ('Date:', 100, 100, 1, 1),
+            ('May', 180, 100, 1, 1),
+            ('12,', 230, 100, 1, 1),
+            ('2023', 270, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('May', result.raw)
+        self.assertIn('12', result.raw)
+        self.assertIn('2023', result.raw)
+        self.assertIsNotNone(result.date_value)
+        self.assertEqual(result.date_value.year, 2023)
+        self.assertEqual(result.date_value.month, 5)
+        self.assertEqual(result.date_value.day, 12)
+    
+    def test_detect_german_date_dd_month_yyyy(self):
+        """Test detection of German date format 'DD. Month YYYY'."""
+        words_data = [
+            ('vom', 100, 100, 1, 1),
+            ('5.', 160, 100, 1, 1),
+            ('Mai', 200, 100, 1, 1),
+            ('2023', 250, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIn('5.', result.raw)
+        self.assertIn('Mai', result.raw)
+        self.assertIn('2023', result.raw)
+        self.assertIsNotNone(result.date_value)
+        self.assertEqual(result.date_value.year, 2023)
+        self.assertEqual(result.date_value.month, 5)
+        self.assertEqual(result.date_value.day, 5)
+    
+    def test_detect_iso_date_format(self):
+        """Test detection of ISO date format 'YYYY-MM-DD'."""
+        words_data = [
+            ('dated', 100, 100, 1, 1),
+            ('2023-05-12', 180, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, '2023-05-12')
+        self.assertIsNotNone(result.date_value)
+        self.assertEqual(result.date_value.year, 2023)
+        self.assertEqual(result.date_value.month, 5)
+        self.assertEqual(result.date_value.day, 12)
+    
+    def test_detect_date_prefers_with_indicator(self):
+        """Test that dates with indicators are preferred over dates without."""
+        words_data = [
+            # Date without indicator (top-left)
+            ('10.01.2023', 100, 100, 1, 1),
+            # Date with indicator (top-right, but has "Datum:")
+            ('Datum:', 700, 120, 2, 2),
+            ('20.02.2023', 780, 120, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # Should prefer the date with the indicator
+        self.assertEqual(result.raw, '20.02.2023')
+        self.assertEqual(result.date_value.day, 20)
+        self.assertEqual(result.date_value.month, 2)
+    
+    def test_detect_date_indicator_in_previous_paragraph(self):
+        """Test that indicator in previous paragraph is recognized."""
+        words_data = [
+            # Indicator in one paragraph
+            ('Datum:', 100, 100, 1, 1),
+            # Date in next paragraph
+            ('15.06.2023', 100, 130, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.raw, '15.06.2023')
+        self.assertEqual(result.date_value.year, 2023)
+        self.assertEqual(result.date_value.month, 6)
+        self.assertEqual(result.date_value.day, 15)
+    
+    def test_detect_date_rightmost_when_no_indicators(self):
+        """Test that rightmost date is preferred when no indicators present."""
+        words_data = [
+            # Date on left
+            ('10.01.2023', 100, 100, 1, 1),
+            # Date on right (should be preferred)
+            ('20.02.2023', 800, 100, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # Should prefer the rightmost date
+        self.assertEqual(result.raw, '20.02.2023')
+        self.assertAlmostEqual(result.x_rel, 0.8, places=2)
+    
+    def test_detect_date_invalid_date_ignored(self):
+        """Test that invalid dates (e.g., 32.13.2023) are ignored."""
+        words_data = [
+            # Invalid date (day 32, month 13)
+            ('32.13.2023', 100, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        # Invalid date should not be detected
+        self.assertFalse(result.found)
+    
+    def test_detect_date_no_date_present(self):
+        """Test that no date is detected when none is present."""
+        words_data = [
+            ('Some', 100, 100, 1, 1),
+            ('text', 180, 100, 1, 1),
+            ('without', 250, 100, 1, 1),
+            ('dates', 340, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertFalse(result.found)
 
 
 if __name__ == '__main__':
