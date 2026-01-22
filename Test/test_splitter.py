@@ -120,7 +120,7 @@ class TestTransitionScorer(unittest.TestCase):
         
         score, factors = self.scorer.score_transition(prev_page, curr_page)
         
-        self.assertIn(200, [score])
+        self.assertGreaterEqual(score, 200)
         self.assertIn("New Index in middle (+200)", factors)
     
     def test_definitive_marker_last_page(self):

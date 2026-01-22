@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 # Scoring threshold for splitting
 SPLIT_THRESHOLD = 500
 
+# Position thresholds for page layout analysis
+TOP_THIRD_THRESHOLD = 0.33  # Top third of the page (0.0 to 0.33)
+TOP_HALF_THRESHOLD = 0.5     # Top half of the page (0.0 to 0.5)
+MIDDLE_PAGE_THRESHOLD = 0.3  # Below this is considered "middle" for page indices
+
 
 @dataclass
 class Letter:
@@ -84,8 +89,8 @@ class TransitionScorer:
         
         # +1000: Current page LetterPageIndex.current == 1
         if curr_page.letter_page_index.found and curr_page.letter_page_index.current == 1:
-            # Check if it's in the middle of the page (y_rel > 0.3)
-            if curr_page.letter_page_index.y_rel and curr_page.letter_page_index.y_rel > 0.3:
+            # Check if it's in the middle of the page (y_rel > MIDDLE_PAGE_THRESHOLD)
+            if curr_page.letter_page_index.y_rel and curr_page.letter_page_index.y_rel > MIDDLE_PAGE_THRESHOLD:
                 score += 200
                 factors.append("New Index in middle (+200)")
             else:
@@ -105,7 +110,7 @@ class TransitionScorer:
         # Address Block scoring
         if curr_page.address_block.found:
             if curr_page.address_block.y_rel is not None:
-                if curr_page.address_block.y_rel <= 0.33:  # Top third
+                if curr_page.address_block.y_rel <= TOP_THIRD_THRESHOLD:  # Top third
                     score += 450
                     factors.append("Address Block at top (+450)")
                 else:
@@ -115,7 +120,7 @@ class TransitionScorer:
         # Subject Line scoring
         if curr_page.subject.found:
             if curr_page.subject.y_rel is not None:
-                if curr_page.subject.y_rel <= 0.5:  # Top half
+                if curr_page.subject.y_rel <= TOP_HALF_THRESHOLD:  # Top half
                     score += 300
                     factors.append("Subject at top (+300)")
                 else:
@@ -125,7 +130,7 @@ class TransitionScorer:
         # Greeting scoring
         if curr_page.greeting.found:
             if curr_page.greeting.y_rel is not None:
-                if curr_page.greeting.y_rel <= 0.5:  # Top half
+                if curr_page.greeting.y_rel <= TOP_HALF_THRESHOLD:  # Top half
                     score += 250
                     factors.append("Greeting at top (+250)")
                 else:
@@ -135,7 +140,7 @@ class TransitionScorer:
         # Date Marker scoring
         if curr_page.date.found:
             if curr_page.date.y_rel is not None:
-                if curr_page.date.y_rel <= 0.33:  # Top third
+                if curr_page.date.y_rel <= TOP_THIRD_THRESHOLD:  # Top third
                     score += 50
                     factors.append("Date at top (+50)")
         
@@ -163,7 +168,7 @@ class TransitionScorer:
         
         # -100: Current page starts with a goodbye at the top third
         if (curr_page.goodbye.found and curr_page.goodbye.y_rel is not None and
-            curr_page.goodbye.y_rel <= 0.33):
+            curr_page.goodbye.y_rel <= TOP_THIRD_THRESHOLD):
             score -= 100
             factors.append("Goodbye at top (-100)")
         
