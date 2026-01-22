@@ -1148,7 +1148,7 @@ def _parse_month_name(month_name: str) -> Optional[int]:
 
 
 def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressBlock] = None) -> SenderBlock:
-    """
+    r"""
     Detect and extract the Sender Line (Rücksendeadresse) from letters.
     
     The sender line is typically a single line of small text located in the top-left corner,
