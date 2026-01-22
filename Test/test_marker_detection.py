@@ -2503,6 +2503,71 @@ class TestDetectSenderLine(unittest.TestCase):
         self.assertEqual(result.zip_code, '12345')
         self.assertEqual(result.city, 'Berlin')
     
+    def test_sender_line_with_postfach(self):
+        """Test detection of sender line with Postfach (PO Box)."""
+        # Sender line: "Bundesanzeiger Verlag, Postfach 100534, 50445 Köln"
+        words_data = [
+            ('Bundesanzeiger', 100, 50, 1, 8),
+            ('Verlag,', 220, 50, 1, 8),
+            ('Postfach', 290, 50, 1, 8),
+            ('100534,', 360, 50, 1, 8),
+            ('50445', 430, 50, 1, 8),
+            ('Köln', 490, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Bundesanzeiger Verlag')
+        self.assertEqual(result.street, 'Postfach 100534')
+        self.assertEqual(result.zip_code, '50445')
+        self.assertEqual(result.city, 'Köln')
+    
+    def test_sender_line_with_abbreviated_street(self):
+        """Test detection of sender line with abbreviated street name."""
+        # Sender line: "Korth Immobilien, Bahnhofstr. 4, 24223 Schwentinental"
+        words_data = [
+            ('Korth', 100, 50, 1, 8),
+            ('Immobilien,', 160, 50, 1, 8),
+            ('Bahnhofstr.', 260, 50, 1, 8),
+            ('4,', 360, 50, 1, 8),
+            ('24223', 390, 50, 1, 8),
+            ('Schwentinental', 460, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Korth Immobilien')
+        self.assertEqual(result.street, 'Bahnhofstr. 4')
+        self.assertEqual(result.zip_code, '24223')
+        self.assertEqual(result.city, 'Schwentinental')
+    
+    def test_sender_line_postfach_only_with_name(self):
+        """Test Postfach as the only address component with name."""
+        # Sender line: "Company AG | Postfach 12345 | 10115 Berlin"
+        words_data = [
+            ('Company', 100, 50, 1, 8),
+            ('AG', 180, 50, 1, 8),
+            ('|', 220, 50, 1, 8),
+            ('Postfach', 240, 50, 1, 8),
+            ('12345', 310, 50, 1, 8),
+            ('|', 370, 50, 1, 8),
+            ('10115', 390, 50, 1, 8),
+            ('Berlin', 450, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Company AG')
+        self.assertEqual(result.street, 'Postfach 12345')
+        self.assertEqual(result.zip_code, '10115')
+        self.assertEqual(result.city, 'Berlin')
+    
     def test_empty_dataframe(self):
         """Test that empty DataFrame returns found=False."""
         page_df = pd.DataFrame()

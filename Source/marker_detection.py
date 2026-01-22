@@ -1259,55 +1259,119 @@ def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressB
     if not lines:
         return SenderBlock(found=False)
     
-    # Step 4: Pattern Matching & Parsing
+    # Step 4: Pattern Matching & Parsing (Segment-First Strategy)
     # Try each line as a potential sender line
     # German ZIP format: 5 digits
     zip_pattern = r'\b(\d{5})\b'
     # Street pattern: text followed by number (with optional letter)
-    # Handles hyphenated names, apostrophes, and periods in abbreviations
-    street_pattern = r'([A-Za-zäöüÄÖÜß]+(?:[\s\-\.\']+[A-Za-zäöüÄÖÜß]+)*)\s+(\d+[a-zA-Z]?)\b'
+    # Handles abbreviations like "str.", "Str.", hyphenated names, apostrophes, and periods
+    street_pattern = r'([A-Za-zäöüÄÖÜß]+(?:[\s\-\.\']+[A-Za-zäöüÄÖÜß]+)*\.?)\s*(\d+[a-zA-Z]?)\b'
+    # Postfach pattern: "Postfach" followed by a number
+    postfach_pattern = r'\b(Postfach)\s+(\d+)\b'
     
     for line in lines:
         line_text = line['text']
         
-        # Look for ZIP code (required)
-        zip_match = re.search(zip_pattern, line_text)
-        if not zip_match:
+        # Segment-First Parsing: Split by common delimiters
+        # Split on: comma, pipe, bullet, middle dot, forward slash
+        # Keep hyphens as they're common in street/city names
+        segments = re.split(r'\s*[,|•·/]\s*', line_text)
+        
+        # Clean up segments
+        segments = [seg.strip() for seg in segments if seg.strip()]
+        
+        # First pass: identify segment types
+        segment_types = []
+        for segment in segments:
+            # Check for Postfach (PO Box)
+            postfach_match = re.search(postfach_pattern, segment, re.IGNORECASE)
+            if postfach_match:
+                segment_types.append(('postfach', segment, postfach_match))
+                continue
+            
+            # Check for street
+            street_match = re.search(street_pattern, segment)
+            if street_match:
+                segment_types.append(('street', segment, street_match))
+                continue
+            
+            # Check for ZIP code followed by city name
+            # A real ZIP+City segment should have text after the ZIP
+            zip_match = re.search(zip_pattern, segment)
+            if zip_match:
+                # Check if there's a city name after the ZIP
+                zip_end = zip_match.end()
+                text_after = segment[zip_end:].strip()
+                if text_after and re.match(r'^[A-Za-zäöüÄÖÜß]', text_after):
+                    # This looks like a ZIP+City segment
+                    segment_types.append(('zip_city', segment, zip_match))
+                    continue
+            
+            # Default: name segment
+            segment_types.append(('name', segment, None))
+        
+        # Check if we have a ZIP+City segment (required)
+        zip_city_segments = [s for s in segment_types if s[0] == 'zip_city']
+        if not zip_city_segments:
             continue
         
-        extracted_zip = zip_match.group(1)
-        zip_pos = zip_match.start()
+        # Extract data from classified segments
+        extracted_name = None
+        extracted_street = None
+        extracted_zip = None
+        extracted_city = None
+        name_segments = []
         
-        # Extract city (text after ZIP code)
-        text_after_zip = line_text[zip_match.end():].strip()
-        # Remove common delimiters at the start
-        text_after_zip = re.sub(r'^[,|•·\-/\s]+', '', text_after_zip)
+        for seg_type, segment, match_obj in segment_types:
+            if seg_type == 'zip_city':
+                # Extract ZIP and city
+                zip_match = match_obj
+                extracted_zip = zip_match.group(1)
+                zip_idx = segment.find(extracted_zip)
+                text_after_zip = segment[zip_idx + len(extracted_zip):].strip()
+                if text_after_zip:
+                    # Remove leading delimiters
+                    text_after_zip = re.sub(r'^[\s\-]+', '', text_after_zip)
+                    city_match = re.match(r'^([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\s\-\.\'0-9]*)', text_after_zip)
+                    extracted_city = city_match.group(1).strip() if city_match else text_after_zip.strip()
+                # Check if there's text before the ZIP in this segment
+                text_before_zip = segment[:zip_idx].strip()
+                if text_before_zip:
+                    name_segments.append(text_before_zip)
+            
+            elif seg_type == 'postfach':
+                # Extract Postfach as street
+                postfach_match = match_obj
+                extracted_street = f"{postfach_match.group(1)} {postfach_match.group(2)}"
+                # Check if there's text before Postfach
+                postfach_start = postfach_match.start()
+                if postfach_start > 0:
+                    text_before = segment[:postfach_start].strip()
+                    if text_before:
+                        name_segments.append(text_before)
+            
+            elif seg_type == 'street':
+                # Extract street
+                street_match = match_obj
+                extracted_street = street_match.group(0).strip()
+                # Check if there's text before the street
+                street_start = street_match.start()
+                if street_start > 0:
+                    text_before = segment[:street_start].strip()
+                    if text_before:
+                        name_segments.append(text_before)
+            
+            elif seg_type == 'name':
+                # This is a name segment
+                name_segments.append(segment)
         
-        # City is typically the remaining text after ZIP (before any other delimiters)
-        # Handles hyphenated names, apostrophes, numbers, and periods
-        city_match = re.match(r'^([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\s\-\.\'0-9]*)', text_after_zip)
-        extracted_city = city_match.group(1).strip() if city_match else text_after_zip.strip()
-        
-        # Extract text before ZIP (contains name and possibly street)
-        text_before_zip = line_text[:zip_pos].strip()
-        
-        # Try to find street pattern
-        street_match = re.search(street_pattern, text_before_zip)
-        if street_match:
-            extracted_street = street_match.group(0).strip()
-            street_pos = street_match.start()
-            # Everything before the street is the sender name
-            text_before_street = text_before_zip[:street_pos].strip()
-            # Remove trailing delimiters
-            text_before_street = re.sub(r'[,|•·\-/\s]+$', '', text_before_street)
-            extracted_name = text_before_street if text_before_street else None
-        else:
-            # No street found, assume everything before ZIP is the name
-            extracted_street = None
-            text_before_street = text_before_zip
-            # Remove trailing delimiters
-            text_before_street = re.sub(r'[,|•·\-/\s]+$', '', text_before_street)
-            extracted_name = text_before_street if text_before_street else None
+        # Combine name segments
+        if name_segments:
+            extracted_name = ' '.join(name_segments).strip()
+            # Remove trailing/leading delimiters
+            extracted_name = re.sub(r'^[\s\-]+|[\s\-]+$', '', extracted_name)
+            if not extracted_name:
+                extracted_name = None
         
         # Step 5: Validation
         # Must have at least ZIP and some name/street info
