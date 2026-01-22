@@ -39,11 +39,11 @@ def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
     # Note: OCR engines often misread '/' as '|', 'I', or 'l', so we match all these characters
     total_info_patterns = [
         # German patterns
-        r'\bSeite\s+(\d+)\s+von\s+(\d+)\b',                    # Seite X von Y
-        r'\bSeite\s+(\d+)\s*[/|Il]\s*(\d+)\b',                 # Seite X/Y, Seite X|Y, Seite X I Y, etc.
+        r'\bSeite\s*(\d+)\s*von\s*(\d+)\b',                    # Seite X von Y
+        r'\bSeite\s*(\d+)\s*[/|Il]\s*(\d+)\b',                 # Seite X/Y, Seite X|Y, Seite X I Y, etc.
         # English patterns
-        r'\bPage\s+(\d+)\s+of\s+(\d+)\b',                      # Page X of Y
-        r'\bPage\s+(\d+)\s*[/|Il]\s*(\d+)\b',                  # Page X/Y, Page X|Y, Page X I Y, etc.
+        r'\bPage\s*(\d+)\s*of\s*(\d+)\b',                      # Page X of Y
+        r'\bPage\s*(\d+)\s*[/|Il]\s*(\d+)\b',                  # Page X/Y, Page X|Y, Page X I Y, etc.
     ]
     
     # Priority 2: Continuation/Partial Information patterns (current page only, implicit)
