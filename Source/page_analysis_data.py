@@ -23,13 +23,25 @@ class TextMarker:
 
 
 @dataclass
+class AddressBlock:
+    found: bool = False
+    x_rel: Optional[float] = None
+    y_rel: Optional[float] = None
+    extracted_name: Optional[str] = None
+    extracted_street: Optional[str] = None
+    extracted_zip: Optional[str] = None
+    extracted_city: Optional[str] = None
+    line_count: Optional[int] = None
+
+
+@dataclass
 class PageAnalysis:
     scan_page_num: int
     letter_page_index: LetterPageIndex
     greeting: TextMarker
     goodbye: TextMarker
     subject: TextMarker
-    address_block: TextMarker
+    address_block: AddressBlock
 
 
 def write_page_analysis_to_json(page_analysis_list: list[PageAnalysis], output_path: Path) -> None:

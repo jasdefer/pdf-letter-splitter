@@ -13,8 +13,8 @@ import pandas as pd
 # Add Source directory to path to import the marker detection module
 sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 
-from marker_detection import detect_greeting, detect_goodbye, detect_subject
-from page_analysis_data import TextMarker
+from marker_detection import detect_greeting, detect_goodbye, detect_subject, detect_address_block
+from page_analysis_data import TextMarker, AddressBlock
 
 # Test data constants
 CHAR_WIDTH_PIXELS = 10  # Approximate width per character for test data
@@ -1270,6 +1270,622 @@ class TestDetectSubject(unittest.TestCase):
         self.assertTrue(result.found)
         self.assertEqual(result.x_rel, 0.35)  # 700/2000 (start of subject text)
         self.assertEqual(result.y_rel, 0.3)   # 900/3000
+
+
+class TestDetectAddressBlock(unittest.TestCase):
+    """Test cases for detect_address_block function."""
+    
+    def _create_test_dataframe(self, words_data, page_width=1000, page_height=1500):
+        """
+        Helper to create a minimal OCR DataFrame for testing.
+        
+        Args:
+            words_data: List of tuples (text, left, top, line_num)
+            page_width: Page width in pixels
+            page_height: Page height in pixels
+        
+        Returns:
+            DataFrame mimicking OCR output
+        """
+        rows = []
+        for idx, word_data in enumerate(words_data):
+            text, left, top, line_num = word_data
+            
+            rows.append({
+                'level': 5,  # Word level
+                'page_num': 1,
+                'block_num': 1,
+                'par_num': 1,
+                'line_num': line_num,
+                'word_num': idx + 1,
+                'left': left,
+                'top': top,
+                'width': len(text) * CHAR_WIDTH_PIXELS,
+                'height': WORD_HEIGHT_PIXELS,
+                'conf': 90,
+                'text': text,
+                'page_width': page_width,
+                'page_height': page_height,
+            })
+        return pd.DataFrame(rows)
+    
+    def test_detect_basic_address_block(self):
+        """Test detection of a basic address block with name, street, ZIP, and city."""
+        words_data = [
+            # Name line
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            # Street line
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            # ZIP City line (anchor)
+            ('12345', 100, 140, 3),
+            ('Berlin', 180, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_name, 'Max Mustermann')
+        self.assertEqual(result.extracted_street, 'Hauptstraße 42')
+        self.assertEqual(result.extracted_zip, '12345')
+        self.assertEqual(result.extracted_city, 'Berlin')
+        self.assertEqual(result.line_count, 3)
+        self.assertEqual(result.x_rel, 0.1)  # 100/1000
+        self.assertAlmostEqual(result.y_rel, 0.067, places=2)  # 100/1500
+    
+    def test_detect_address_block_with_multiple_name_lines(self):
+        """Test detection of address block with multiple name lines."""
+        words_data = [
+            # Name line 1
+            ('Firma', 100, 80, 1),
+            ('GmbH', 170, 80, 1),
+            # Name line 2
+            ('Max', 100, 100, 2),
+            ('Mustermann', 150, 100, 2),
+            # Street line
+            ('Hauptstraße', 100, 120, 3),
+            ('42', 220, 120, 3),
+            # ZIP City line (anchor)
+            ('12345', 100, 140, 4),
+            ('Berlin', 180, 140, 4),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_name, 'Firma GmbH Max Mustermann')
+        self.assertEqual(result.extracted_street, 'Hauptstraße 42')
+        self.assertEqual(result.extracted_zip, '12345')
+        self.assertEqual(result.extracted_city, 'Berlin')
+        self.assertEqual(result.line_count, 4)
+    
+    def test_detect_address_block_minimal_two_lines(self):
+        """Test detection of minimal address block with only street and ZIP/City."""
+        words_data = [
+            # Street line
+            ('Hauptstraße', 100, 120, 1),
+            ('42', 220, 120, 1),
+            # ZIP City line (anchor)
+            ('12345', 100, 140, 2),
+            ('Berlin', 180, 140, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIsNone(result.extracted_name)  # No name line
+        self.assertEqual(result.extracted_street, 'Hauptstraße 42')
+        self.assertEqual(result.extracted_zip, '12345')
+        self.assertEqual(result.extracted_city, 'Berlin')
+        self.assertEqual(result.line_count, 2)
+    
+    def test_detect_address_block_with_umlaut_city(self):
+        """Test detection with German umlauts in city name."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            ('12345', 100, 140, 3),
+            ('München', 180, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_zip, '12345')
+        self.assertEqual(result.extracted_city, 'München')
+    
+    def test_detect_address_block_with_hyphenated_city(self):
+        """Test detection with hyphenated city name."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            ('12345', 100, 140, 3),
+            ('Frankfurt-Oder', 180, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_city, 'Frankfurt-Oder')
+    
+    def test_detect_address_block_with_multi_word_city(self):
+        """Test detection with multi-word city name."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            ('12345', 100, 140, 3),
+            ('Bad', 180, 140, 3),
+            ('Homburg', 220, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_zip, '12345')
+        self.assertIn('Bad', result.extracted_city)
+        self.assertIn('Homburg', result.extracted_city)
+    
+    def test_spatial_constraint_top_30_percent(self):
+        """Test that addresses outside top 30% are not detected."""
+        # Address at 50% height (outside top 30%)
+        words_data = [
+            ('Max', 100, 750, 1),  # 750/1500 = 50% height
+            ('Mustermann', 150, 750, 1),
+            ('Hauptstraße', 100, 770, 2),
+            ('42', 220, 770, 2),
+            ('12345', 100, 790, 3),
+            ('Berlin', 180, 790, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)  # Should not be found outside recipient zone
+    
+    def test_spatial_constraint_left_50_percent(self):
+        """Test that addresses outside left 50% are not detected."""
+        # Address at 60% width (outside left 50%)
+        words_data = [
+            ('Max', 600, 100, 1),  # 600/1000 = 60% width
+            ('Mustermann', 650, 100, 1),
+            ('Hauptstraße', 600, 120, 2),
+            ('42', 720, 120, 2),
+            ('12345', 600, 140, 3),
+            ('Berlin', 680, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)  # Should not be found outside recipient zone
+    
+    def test_spatial_constraint_within_recipient_zone(self):
+        """Test that addresses within recipient zone are detected."""
+        # Address at top-left (within recipient zone)
+        words_data = [
+            ('Max', 100, 100, 1),  # Well within top 30% and left 50%
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            ('12345', 100, 140, 3),
+            ('Berlin', 180, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+    
+    def test_no_zip_pattern_found(self):
+        """Test that no address is found if ZIP pattern is missing."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            # No ZIP/City line
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_invalid_zip_format(self):
+        """Test that 4-digit ZIP is not matched (requires 5 digits)."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            ('1234', 100, 140, 3),  # Only 4 digits
+            ('Berlin', 180, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_invalid_zip_format_six_digits(self):
+        """Test that 6-digit ZIP is not matched (requires exactly 5 digits)."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 100, 120, 2),
+            ('42', 220, 120, 2),
+            ('123456', 100, 140, 3),  # 6 digits
+            ('Berlin', 180, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_left_alignment_tolerance(self):
+        """Test that lines with similar left alignment are grouped."""
+        # Lines with slight left alignment variation (within tolerance)
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+            ('Hauptstraße', 110, 120, 2),  # 10 pixels off
+            ('42', 230, 120, 2),
+            ('12345', 105, 140, 3),  # 5 pixels off
+            ('Berlin', 185, 140, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.line_count, 3)
+    
+    def test_left_alignment_break(self):
+        """Test that lines with significantly different left alignment are not grouped."""
+        words_data = [
+            ('Header', 50, 80, 1),  # Far left, should not be included
+            ('Text', 80, 80, 1),
+            ('Max', 100, 100, 2),
+            ('Mustermann', 150, 100, 2),
+            ('Hauptstraße', 100, 120, 3),
+            ('42', 220, 120, 3),
+            ('12345', 100, 140, 4),
+            ('Berlin', 180, 140, 4),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        # Should only include lines with similar left alignment to anchor
+        # Header line should not be included
+        self.assertEqual(result.line_count, 3)
+        self.assertNotIn('Header', result.extracted_name or '')
+    
+    def test_empty_dataframe(self):
+        """Test that empty DataFrame returns found=False."""
+        page_df = pd.DataFrame()
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.extracted_name)
+        self.assertIsNone(result.extracted_street)
+        self.assertIsNone(result.extracted_zip)
+        self.assertIsNone(result.extracted_city)
+        self.assertIsNone(result.line_count)
+    
+    def test_missing_required_columns(self):
+        """Test that missing required columns returns found=False."""
+        incomplete_data = {
+            'level': [5, 5],
+            'text': ['Max', 'Mustermann'],
+            'left': [100, 150],
+            'top': [100, 100],
+        }
+        page_df = pd.DataFrame(incomplete_data)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_null_page_dimensions(self):
+        """Test that null page dimensions returns found=False."""
+        words_data = [
+            ('Max', 100, 100, 1),
+            ('Mustermann', 150, 100, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        page_df['page_width'] = None
+        page_df['page_height'] = None
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_only_zip_city_no_lines_above(self):
+        """Test that only ZIP/City without lines above is not detected."""
+        words_data = [
+            ('12345', 100, 140, 1),
+            ('Berlin', 180, 140, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertFalse(result.found)  # Need at least 1 line above anchor
+    
+    def test_relative_position_calculation(self):
+        """Test that x_rel and y_rel are correctly calculated."""
+        page_width = 2000
+        page_height = 3000
+        words_data = [
+            ('Max', 500, 300, 1),
+            ('Mustermann', 600, 300, 1),
+            ('Hauptstraße', 500, 330, 2),
+            ('42', 720, 330, 2),
+            ('12345', 500, 360, 3),
+            ('Berlin', 680, 360, 3),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=page_width, page_height=page_height)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.x_rel, 0.25)  # 500/2000
+        self.assertEqual(result.y_rel, 0.1)   # 300/3000
+    
+    def test_max_four_lines_above_anchor(self):
+        """Test that at most 4 lines above anchor are included."""
+        words_data = [
+            ('Line1', 100, 60, 1),   # 5th line above anchor
+            ('Line2', 100, 80, 2),   # 4th line above anchor (should be included)
+            ('Line3', 100, 100, 3),  # 3rd line above anchor
+            ('Line4', 100, 120, 4),  # 2nd line above anchor
+            ('Line5', 100, 140, 5),  # 1st line above anchor (street)
+            ('12345', 100, 160, 6),  # Anchor
+            ('Berlin', 180, 160, 6),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        self.assertTrue(result.found)
+        # Should include at most 4 lines above anchor + anchor = 5 total
+        self.assertLessEqual(result.line_count, 5)
+        # Line1 should not be included
+        self.assertNotIn('Line1', result.extracted_name or '')
+    
+    def test_detect_address_block_with_ocr_native_structure(self):
+        """Test detection using OCR-native hierarchy with realistic data."""
+        # This test uses real OCR data structure with block_num, par_num, line_num
+        # to ensure the implementation correctly handles the OCR engine's layout analysis
+        rows = [
+            # Page-level (level 1)
+            {'level': 1, 'page_num': 1, 'block_num': 0, 'par_num': 0, 'line_num': 0, 'word_num': 0,
+             'left': 0, 'top': 0, 'width': 1242, 'height': 1755, 'conf': -1.0, 'text': '',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Block 7 - Address block
+            # Line 1: "*k4000""
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 1, 'word_num': 1,
+             'left': 422, 'top': 371, 'width': 52, 'height': 11, 'conf': 79.090668, 'text': '"*k4000"""',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Line 2: MyCompany GmbH
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 2, 'word_num': 1,
+             'left': 171, 'top': 390, 'width': 70, 'height': 15, 'conf': 91.679695, 'text': 'MyCompany',
+             'page_width': 1242, 'page_height': 1755},
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 2, 'word_num': 2,
+             'left': 248, 'top': 390, 'width': 54, 'height': 15, 'conf': 96.494873, 'text': 'GmbH',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Line 3: Blumengarten 2
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 3, 'word_num': 1,
+             'left': 170, 'top': 412, 'width': 111, 'height': 18, 'conf': 91.335503, 'text': 'Blumengarten',
+             'page_width': 1242, 'page_height': 1755},
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 3, 'word_num': 2,
+             'left': 288, 'top': 412, 'width': 19, 'height': 14, 'conf': 96.766068, 'text': '2',
+             'page_width': 1242, 'page_height': 1755},
+            
+            # Line 4: 22041 Hamburg (ZIP + City - the anchor)
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 4, 'word_num': 1,
+             'left': 170, 'top': 434, 'width': 51, 'height': 14, 'conf': 96.503525, 'text': '22041',
+             'page_width': 1242, 'page_height': 1755},
+            {'level': 5, 'page_num': 1, 'block_num': 7, 'par_num': 1, 'line_num': 4, 'word_num': 2,
+             'left': 228, 'top': 434, 'width': 77, 'height': 18, 'conf': 96.04438, 'text': 'Hamburg',
+             'page_width': 1242, 'page_height': 1755},
+        ]
+        
+        page_df = pd.DataFrame(rows)
+        result = detect_address_block(page_df)
+        
+        # The address should be detected
+        self.assertTrue(result.found, "Address block should be detected using OCR-native structure")
+        
+        # Verify extracted components
+        self.assertEqual(result.extracted_zip, '22041', "ZIP code should be extracted correctly")
+        self.assertEqual(result.extracted_city, 'Hamburg', "City should be extracted correctly")
+        self.assertEqual(result.extracted_street, 'Blumengarten 2', "Street should be extracted correctly")
+        self.assertIn('MyCompany', result.extracted_name, "Company name should be in extracted_name")
+        self.assertIn('GmbH', result.extracted_name, "GmbH should be in extracted_name")
+        
+        # Verify line count (MyCompany GmbH, Blumengarten 2, 22041 Hamburg = 3 lines)
+        self.assertEqual(result.line_count, 3, "Should count 3 lines (name, street, zip+city)")
+        
+        # Verify position is within recipient zone
+        self.assertLess(result.x_rel, 0.5, "x_rel should be in left 50%")
+        self.assertLess(result.y_rel, 0.3, "y_rel should be in top 30%")
+    
+    def test_skip_sender_address_find_recipient(self):
+        """Test that sender address with ZIP is skipped in favor of recipient address."""
+        # Simulate a page with sender address at top-right and recipient at top-left
+        # Sender appears first in reading order but has no aligned lines above it
+        words_data = [
+            # Sender address (top-right, outside recipient zone or misaligned)
+            # Just the ZIP line with no lines above it
+            ('12345', 400, 100, 1),  # Sender ZIP (right side, outside left 50% or will fail validation)
+            ('SenderCity', 480, 100, 1),
+            
+            # Recipient address (top-left, well-formed with name and street above ZIP)
+            ('Jane', 100, 120, 2),
+            ('Doe', 150, 120, 2),
+            ('Musterstraße', 100, 140, 3),
+            ('10', 230, 140, 3),
+            ('54321', 100, 160, 4),  # Recipient ZIP (should be found)
+            ('RecipientCity', 180, 160, 4),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should find the recipient address, not the sender
+        self.assertTrue(result.found, "Should find recipient address")
+        self.assertEqual(result.extracted_zip, '54321', "Should extract recipient ZIP, not sender")
+        self.assertEqual(result.extracted_city, 'RecipientCity', "Should extract recipient city")
+        self.assertIn('Jane', result.extracted_name or '', "Should include recipient name")
+        self.assertEqual(result.extracted_street, 'Musterstraße 10', "Should extract recipient street")
+    
+    def test_multiple_zip_candidates_pick_valid_one(self):
+        """Test that when multiple ZIP patterns exist, we pick the one with valid address block."""
+        # First ZIP has no aligned lines above (invalid - different left position)
+        # Second ZIP has proper address block structure (valid)
+        words_data = [
+            # Invalid ZIP candidate - line above has different alignment
+            ('Unrelated', 50, 80, 1),  # Different left position (50 vs 100)
+            ('text', 120, 80, 1),
+            ('99999', 100, 100, 2),  # ZIP - line above is not aligned (50 vs 100)
+            ('InvalidCity', 180, 100, 2),
+            
+            # Some other text
+            ('Other', 50, 120, 3),
+            ('content', 100, 120, 3),
+            
+            # Valid ZIP candidate - has proper name and street above with same alignment
+            ('Max', 100, 150, 4),
+            ('Mustermann', 150, 150, 4),
+            ('Hauptstraße', 100, 170, 5),
+            ('42', 220, 170, 5),
+            ('12345', 100, 190, 6),  # Valid ZIP
+            ('Berlin', 180, 190, 6),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should find the valid address block
+        self.assertTrue(result.found, "Should find the valid address block")
+        self.assertEqual(result.extracted_zip, '12345', "Should extract the valid ZIP")
+        self.assertEqual(result.extracted_city, 'Berlin', "Should extract the valid city")
+        self.assertEqual(result.extracted_name, 'Max Mustermann', "Should extract name from valid block")
+        self.assertEqual(result.extracted_street, 'Hauptstraße 42', "Should extract street from valid block")
+    
+    def test_prefer_address_with_most_lines(self):
+        """Test that when multiple valid addresses exist, the one with most lines is selected."""
+        words_data = [
+            # First address: 2 lines above ZIP (3 total)
+            ('Jane', 100, 80, 1),
+            ('Doe', 150, 80, 1),
+            ('Street1', 100, 100, 2),
+            ('10', 180, 100, 2),
+            ('11111', 100, 120, 3),
+            ('CityA', 180, 120, 3),
+            
+            # Gap of 60+ pixels between addresses
+            
+            # Second address: 3 lines above ZIP (4 total) - should be preferred
+            ('Max', 100, 200, 4),
+            ('Mustermann', 150, 200, 4),
+            ('Company', 100, 220, 5),
+            ('GmbH', 180, 220, 5),
+            ('Street2', 100, 240, 6),
+            ('20', 180, 240, 6),
+            ('22222', 100, 260, 7),
+            ('CityB', 180, 260, 7),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should prefer the address with more lines (4 vs 3)
+        self.assertTrue(result.found)
+        self.assertEqual(result.extracted_zip, '22222', "Should select address with most lines")
+        self.assertEqual(result.line_count, 4, "Should have 4 lines total")
+        self.assertIn('Max', result.extracted_name or '', "Should extract name from larger block")
+        self.assertIn('Company', result.extracted_name or '', "Should include company in name")
+    
+    def test_target_zip_prioritization(self):
+        """Test that target_zip parameter prioritizes matching address over line count."""
+        words_data = [
+            # First address: 4 lines total, ZIP=11111
+            ('Company', 100, 80, 1),
+            ('GmbH', 180, 80, 1),
+            ('Max', 100, 100, 2),
+            ('Mustermann', 150, 100, 2),
+            ('Street1', 100, 120, 3),
+            ('10', 180, 120, 3),
+            ('11111', 100, 140, 4),
+            ('CityA', 180, 140, 4),
+            
+            # Gap of 60+ pixels between addresses
+            
+            # Second address: 3 lines total, ZIP=22222 (target)
+            ('Jane', 100, 220, 5),
+            ('Doe', 150, 220, 5),
+            ('Street2', 100, 240, 6),
+            ('20', 180, 240, 6),
+            ('22222', 100, 260, 7),
+            ('CityB', 180, 260, 7),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        # Without target_zip, should prefer first (more lines)
+        result_no_target = detect_address_block(page_df)
+        self.assertEqual(result_no_target.extracted_zip, '11111', "Without target, should prefer more lines")
+        
+        # With target_zip, should prefer matching ZIP even with fewer lines
+        result_with_target = detect_address_block(page_df, target_zip='22222')
+        self.assertEqual(result_with_target.extracted_zip, '22222', "With target, should prefer matching ZIP")
+        self.assertEqual(result_with_target.line_count, 3, "Target address has 3 lines")
+    
+    def test_vertical_gap_limit(self):
+        """Test that lines with excessive vertical gap are not included in address block."""
+        words_data = [
+            # Line far above (should be excluded due to vertical gap)
+            ('FarAbove', 100, 50, 1),
+            ('Text', 180, 50, 1),
+            
+            # Proper address block (close together)
+            ('Max', 100, 180, 2),
+            ('Mustermann', 150, 180, 2),
+            ('Street', 100, 200, 3),
+            ('10', 180, 200, 3),
+            ('12345', 100, 220, 4),
+            ('City', 180, 220, 4),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_address_block(page_df)
+        
+        # Should not include the far above line
+        self.assertTrue(result.found)
+        self.assertEqual(result.line_count, 3, "Should have 3 lines (name, street, ZIP+city)")
+        self.assertNotIn('FarAbove', result.extracted_name or '', "Should not include text with large gap")
+        self.assertIn('Max', result.extracted_name or '', "Should include properly spaced lines")
 
 
 if __name__ == '__main__':
