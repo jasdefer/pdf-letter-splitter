@@ -10,12 +10,127 @@ LINE_GROUPING_TOLERANCE = 10  # Pixels tolerance for grouping words on the same 
 
 
 def detect_letter_page_index(page_df: pd.DataFrame) -> LetterPageIndex:
-    return LetterPageIndex(
-        found = False,
-        current = None,
-        total = None,
-        raw = None
-    )
+    """
+    Detect page index information from OCR data.
+    
+    Extracts current page number and total page count (if available) from patterns like:
+    - Priority 1 (Total Info): "Seite X von Y", "Page X of Y", "Seite X / Y", etc.
+    - Priority 2 (Continuation): "Fortsetzung auf Seite X", "Continued on page X"
+    
+    Uses 1-based indexing (matching text in the letter).
+    Ignores standalone numbers to avoid false positives.
+    
+    Args:
+        page_df: DataFrame containing OCR data for a single page with columns:
+                 'text', 'left', 'top', 'page_width', 'page_height', etc.
+    
+    Returns:
+        LetterPageIndex with:
+            - found: True if page index detected
+            - current: Current page number (1-based)
+            - total: Total page count (1-based) or None if not available
+            - raw: The matched text
+            - x_rel: Relative x position (0..1) of indicator start
+            - y_rel: Relative y position (0..1) of indicator start
+    """
+    # Priority 1: Total Information patterns (with both current and total)
+    # Match patterns like "Seite 2 von 5", "Page 2 of 5", "Seite 2/5", "Page 2 / 5"
+    # Case insensitive, flexible spacing around separators
+    total_info_patterns = [
+        # German patterns
+        r'\bSeite\s+(\d+)\s+von\s+(\d+)\b',      # Seite X von Y
+        r'\bSeite\s+(\d+)\s*/\s*(\d+)\b',        # Seite X/Y or Seite X / Y
+        # English patterns
+        r'\bPage\s+(\d+)\s+of\s+(\d+)\b',        # Page X of Y
+        r'\bPage\s+(\d+)\s*/\s*(\d+)\b',         # Page X/Y or Page X / Y
+    ]
+    
+    # Priority 2: Continuation/Partial Information patterns (current page only, implicit)
+    # Match patterns like "Fortsetzung auf Seite 3", "Continued on page 3"
+    # These indicate the NEXT page, so current = X-1
+    continuation_patterns = [
+        # German patterns
+        r'\bFortsetzung\s+(?:auf|siehe)\s+Seite\s+(\d+)\b',  # Fortsetzung auf/siehe Seite X
+        # English patterns
+        r'\bContinued\s+on\s+page\s+(\d+)\b',                 # Continued on page X
+    ]
+    
+    # Preprocess and group words
+    paragraphs, page_width, page_height = _preprocess_and_group_words(page_df)
+    
+    if paragraphs is None:
+        return LetterPageIndex(found=False, current=None, total=None, raw=None, x_rel=None, y_rel=None)
+    
+    # Priority 1: Search for total information patterns first
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check total information patterns
+        for pattern in total_info_patterns:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Extract current and total page numbers
+                current_page = int(match.group(1))
+                total_pages = int(match.group(2))
+                
+                # Find position of the match
+                first_word_idx = _find_first_word_of_match(para_group, match, para_text)
+                if first_word_idx is not None:
+                    first_word = para_group.iloc[first_word_idx]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                else:
+                    # Fallback to first word in paragraph
+                    first_word = para_group.iloc[0]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                
+                return LetterPageIndex(
+                    found=True,
+                    current=current_page,
+                    total=total_pages,
+                    raw=match.group(0),
+                    x_rel=float(x_rel),
+                    y_rel=float(y_rel)
+                )
+    
+    # Priority 2: Search for continuation patterns (if no total info found)
+    for para_key, para_group in paragraphs:
+        # Reconstruct the paragraph text
+        para_text = ' '.join(para_group['text'].astype(str))
+        
+        # Check continuation patterns
+        for pattern in continuation_patterns:
+            match = re.search(pattern, para_text, re.IGNORECASE)
+            if match:
+                # Extract the next page number and calculate current (X-1)
+                next_page = int(match.group(1))
+                current_page = next_page - 1
+                
+                # Find position of the match
+                first_word_idx = _find_first_word_of_match(para_group, match, para_text)
+                if first_word_idx is not None:
+                    first_word = para_group.iloc[first_word_idx]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                else:
+                    # Fallback to first word in paragraph
+                    first_word = para_group.iloc[0]
+                    x_rel = first_word['left'] / page_width
+                    y_rel = first_word['top'] / page_height
+                
+                return LetterPageIndex(
+                    found=True,
+                    current=current_page,
+                    total=None,  # Total not available for continuation patterns
+                    raw=match.group(0),
+                    x_rel=float(x_rel),
+                    y_rel=float(y_rel)
+                )
+    
+    # No match found
+    return LetterPageIndex(found=False, current=None, total=None, raw=None, x_rel=None, y_rel=None)
 
 
 def detect_greeting(page_df: pd.DataFrame) -> TextMarker:
