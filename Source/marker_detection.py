@@ -846,6 +846,73 @@ def detect_address_block(page_df: pd.DataFrame, target_zip: Optional[str] = None
     )
 
 
+def _has_inline_indicator(para_text: str, date_match: re.Match) -> bool:
+    """
+    Check if a date has an indicator word immediately to its left.
+    
+    Only matches if the indicator (e.g., "Datum:", "Date:", "vom") is directly
+    before the date with only optional colons and whitespace in between.
+    This avoids false positives from dates within sentences like 
+    "Das Datum der ersten Lieferung war der 01.01.2023".
+    
+    Args:
+        para_text: The paragraph text containing the date
+        date_match: Regex match object for the date
+    
+    Returns:
+        True if an indicator is immediately before the date
+    """
+    # Extract text before the date match
+    text_before = para_text[:date_match.start()].strip()
+    
+    # Check if the text immediately before ends with a date indicator
+    # Pattern: word ending with "datum" or "date" (case-insensitive), or "vom"/"dated"
+    # followed by optional colon and whitespace
+    inline_indicator_pattern = r'(?:\w*datum|\w*date|vom|dated)\s*:?\s*$'
+    
+    return bool(re.search(inline_indicator_pattern, text_before, re.IGNORECASE))
+
+
+def _has_above_indicator(prev_para_group: pd.DataFrame, current_para_group: pd.DataFrame, 
+                         page_width: float) -> bool:
+    """
+    Check if the previous paragraph contains a label-like indicator for the date.
+    
+    An indicator in the paragraph above is only considered valid if it behaves like
+    a column label (i.e., it's the only significant text in that line or is 
+    vertically aligned with the date).
+    
+    Args:
+        prev_para_group: DataFrame of words in the previous paragraph
+        current_para_group: DataFrame of words in the current paragraph (with date)
+        page_width: Page width in pixels
+    
+    Returns:
+        True if the previous paragraph is a valid label for the date
+    """
+    prev_para_text = ' '.join(prev_para_group['text'].astype(str)).strip()
+    
+    # Check if previous paragraph contains a date indicator keyword
+    indicator_pattern = r'^\s*(?:\w*datum|\w*date|vom|dated)\s*:?\s*$'
+    if not re.search(indicator_pattern, prev_para_text, re.IGNORECASE):
+        return False
+    
+    # Check if the indicator is short (label-like, not a full sentence)
+    # A label should be relatively short (e.g., "Datum:", "Date:")
+    if len(prev_para_text.split()) > 3:
+        return False
+    
+    # Check vertical alignment: the indicator should be roughly aligned with the date
+    # Get horizontal position of the indicator
+    prev_left = prev_para_group.iloc[0]['left'] if not prev_para_group.empty else 0
+    curr_left = current_para_group.iloc[0]['left'] if not current_para_group.empty else 0
+    
+    # Allow for reasonable horizontal alignment tolerance (within 20% of page width)
+    alignment_tolerance = page_width * 0.2
+    
+    return abs(prev_left - curr_left) <= alignment_tolerance
+
+
 def detect_date(page_df: pd.DataFrame) -> DateMarker:
     """
     Detect the letter's creation date from OCR data.
@@ -860,9 +927,11 @@ def detect_date(page_df: pd.DataFrame) -> DateMarker:
     - YYYY-MM-DD (e.g., 2023-05-12)
     
     Keyword indicators: "Datum", "Date", "vom", "dated"
+    - Inline: Indicator must be immediately before the date (e.g., "Datum: 12.05.2023")
+    - Above: Indicator in previous paragraph must be label-like and vertically aligned
     
     Heuristics for selecting best candidate when multiple dates found:
-    1. Prefer dates with keyword indicators in same paragraph or paragraph immediately above
+    1. Prefer dates with keyword indicators (strict inline or above detection)
     2. Tie-breaker: highest x position (furthest right)
     3. Final tie-breaker: lowest y position (furthest top)
     
@@ -933,14 +1002,6 @@ def detect_date(page_df: pd.DataFrame) -> DateMarker:
         (r'\b(\d{4})\s*-\s*(\d{1,2})\s*-\s*(\d{1,2})\b', 'YYYY-MM-DD'),
     ]
     
-    # Keyword indicators
-    indicator_patterns = [
-        r'\bDatum\b',
-        r'\bDate\b',
-        r'\bvom\b',
-        r'\bdated\b',
-    ]
-    
     # Collect all date candidates
     candidates = []
     para_list = list(paragraphs)
@@ -948,20 +1009,9 @@ def detect_date(page_df: pd.DataFrame) -> DateMarker:
     for idx, (para_key, para_group) in enumerate(para_list):
         para_text = ' '.join(para_group['text'].astype(str))
         
-        # Check for keyword indicators in this paragraph
-        has_indicator = any(re.search(pattern, para_text, re.IGNORECASE) for pattern in indicator_patterns)
-        
-        # Check for keyword indicators in previous paragraph
-        has_indicator_above = False
-        if idx > 0:
-            prev_para_key, prev_para_group = para_list[idx - 1]
-            prev_para_text = ' '.join(prev_para_group['text'].astype(str))
-            has_indicator_above = any(re.search(pattern, prev_para_text, re.IGNORECASE) for pattern in indicator_patterns)
-        
-        # Search for date patterns
+        # Search for date patterns - collect ALL matches
         for pattern, format_name in date_patterns:
-            match = re.search(pattern, para_text, re.IGNORECASE)
-            if match:
+            for match in re.finditer(pattern, para_text, re.IGNORECASE):
                 # Try to parse the date
                 parsed_date = _parse_date_from_match(match, format_name)
                 if parsed_date is not None:
@@ -976,15 +1026,22 @@ def detect_date(page_df: pd.DataFrame) -> DateMarker:
                         x_rel = first_word['left'] / page_width
                         y_rel = first_word['top'] / page_height
                     
+                    # Check for stricter inline indicators (immediately before date)
+                    has_inline_indicator = _has_inline_indicator(para_text, match)
+                    
+                    # Check for stricter above indicators (label-like in previous paragraph)
+                    has_above_indicator = False
+                    if idx > 0:
+                        prev_para_key, prev_para_group = para_list[idx - 1]
+                        has_above_indicator = _has_above_indicator(prev_para_group, para_group, page_width)
+                    
                     candidates.append({
                         'raw': match.group(0),
                         'date_value': parsed_date,
                         'x_rel': x_rel,
                         'y_rel': y_rel,
-                        'has_indicator': has_indicator or has_indicator_above,
+                        'has_indicator': has_inline_indicator or has_above_indicator,
                     })
-                    # Only take first match per paragraph
-                    break
     
     # No dates found
     if not candidates:

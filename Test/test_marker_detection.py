@@ -2148,6 +2148,88 @@ class TestDetectDate(unittest.TestCase):
         result = detect_date(page_df)
         
         self.assertFalse(result.found)
+    
+    def test_detect_date_in_sentence_not_marked_as_indicator(self):
+        """Test that dates within sentences are NOT marked as having indicators."""
+        words_data = [
+            # Sentence with "Datum" but not as a label: "Das Datum der ersten Lieferung war der 01.01.2023"
+            ('Das', 100, 100, 1, 1),
+            ('Datum', 150, 100, 1, 1),
+            ('der', 220, 100, 1, 1),
+            ('ersten', 270, 100, 1, 1),
+            ('Lieferung', 340, 100, 1, 1),
+            ('war', 440, 100, 1, 1),
+            ('der', 490, 100, 1, 1),
+            ('01.01.2023', 540, 100, 1, 1),
+            # Proper labeled date on right side (should be preferred)
+            ('Datum:', 700, 120, 2, 2),
+            ('15.03.2024', 780, 120, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # Should prefer the properly labeled date, not the one in the sentence
+        self.assertEqual(result.raw, '15.03.2024')
+        self.assertEqual(result.date_value.day, 15)
+        self.assertEqual(result.date_value.month, 3)
+    
+    def test_detect_multiple_dates_same_paragraph(self):
+        """Test that multiple dates in the same paragraph are all collected."""
+        words_data = [
+            # Two dates on the same line: delivery date on left, document date on right
+            ('Lieferdatum:', 100, 100, 1, 1),
+            ('10.01.2023', 220, 100, 1, 1),
+            ('Datum:', 600, 100, 1, 1),
+            ('20.02.2023', 680, 100, 1, 1),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # Should prefer the rightmost date when both have indicators
+        self.assertEqual(result.raw, '20.02.2023')
+        self.assertGreater(result.x_rel, 0.6)
+    
+    def test_detect_date_above_indicator_misaligned_rejected(self):
+        """Test that indicator in previous paragraph is rejected if not vertically aligned."""
+        words_data = [
+            # Indicator on far left
+            ('Datum:', 50, 100, 1, 1),
+            # Date on far right (not aligned)
+            ('15.06.2023', 800, 130, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # Date should be found but WITHOUT indicator (due to misalignment)
+        # If another date with indicator existed, it would be preferred
+        self.assertEqual(result.raw, '15.06.2023')
+    
+    def test_detect_date_above_indicator_too_long_rejected(self):
+        """Test that long sentence-like text above is not treated as indicator."""
+        words_data = [
+            # Long sentence above (not a label)
+            ('Bitte', 100, 100, 1, 1),
+            ('beachten', 180, 100, 1, 1),
+            ('Sie', 280, 100, 1, 1),
+            ('das', 340, 100, 1, 1),
+            ('Datum', 400, 100, 1, 1),
+            ('genau', 470, 100, 1, 1),
+            # Date below
+            ('15.06.2023', 100, 130, 2, 2),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_width=1000, page_height=1500)
+        
+        result = detect_date(page_df)
+        
+        self.assertTrue(result.found)
+        # Date should be found but WITHOUT indicator (previous paragraph is too long)
+        self.assertEqual(result.raw, '15.06.2023')
 
 
 if __name__ == '__main__':
