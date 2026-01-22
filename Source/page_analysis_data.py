@@ -59,5 +59,11 @@ class PageAnalysis:
 
 def write_page_analysis_to_json(page_analysis_list: list[PageAnalysis], output_path: Path) -> None:
     data_dicts = [asdict(page) for page in page_analysis_list]
+    # Convert datetime objects to ISO strings for JSON serialization
+    for data_dict in data_dicts:
+        if 'date' in data_dict and data_dict['date'] and 'date_value' in data_dict['date']:
+            date_value = data_dict['date']['date_value']
+            if date_value is not None:
+                data_dict['date']['date_value'] = date_value.isoformat()
     with open(output_path, 'w') as f:
         json.dump(data_dicts, f, indent=2)
