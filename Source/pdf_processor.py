@@ -115,6 +115,7 @@ class PDFProcessor:
         
         # Get page range (convert 1-indexed scan_page_num to 0-indexed pypdf indices)
         page_nums = [page.scan_page_num for page in letter.pages]
+        pages_added = 0
         
         for scan_page_num in page_nums:
             # Convert to 0-indexed for pypdf
@@ -127,6 +128,14 @@ class PDFProcessor:
                 continue
             
             writer.add_page(reader.pages[pypdf_index])
+            pages_added += 1
+        
+        # Validate that at least one page was added
+        if pages_added == 0:
+            raise RuntimeError(
+                f"Letter {letter_num}: No valid pages could be added. "
+                f"Requested pages {page_nums} but PDF has {len(reader.pages)} pages."
+            )
         
         # Write to file
         with open(output_path, 'wb') as output_file:
@@ -265,8 +274,12 @@ class PDFProcessor:
         topic_words = significant_words[:3]
         
         if not topic_words:
-            # If no significant words, use first 3 words from original
-            topic_words = words[:3]
+            # If no significant words, use first 3 words from original (also filtering short words)
+            topic_words = [word for word in words if len(word) >= 3][:3]
+            
+            # If still empty, take any words (even short ones) as last resort
+            if not topic_words:
+                topic_words = words[:3]
         
         if not topic_words:
             return None
