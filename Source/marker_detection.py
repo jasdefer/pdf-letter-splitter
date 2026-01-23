@@ -741,7 +741,6 @@ def detect_address_block(page_df: pd.DataFrame, target_zip: Optional[str] = None
         match = re.search(zip_city_pattern, line['text'])
         if not match:
             continue
-        
         # Found a ZIP pattern - now validate it has a coherent address block
         anchor_line = line
         anchor_left = anchor_line['left']
@@ -1227,16 +1226,6 @@ def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressB
     if sender_zone_df.empty:
         return SenderBlock(found=False)
     
-    # Step 2: Font Height Filter
-    # Calculate median height of all text on the page
-    median_height = words_df['height'].median()
-    
-    # Filter for small text (at most median height)
-    sender_zone_df = sender_zone_df[sender_zone_df['height'] <= median_height].copy()
-    
-    if sender_zone_df.empty:
-        return SenderBlock(found=False)
-    
     # Step 3: Line Reconstruction
     # Sort by block, paragraph, line, then left position
     sender_zone_df = sender_zone_df.sort_values(['block_num', 'par_num', 'line_num', 'left'])
@@ -1275,7 +1264,7 @@ def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressB
         # Segment-First Parsing: Split by common delimiters
         # Split on: comma, pipe, bullet, middle dot, forward slash
         # Keep hyphens as they're common in street/city names
-        segments = re.split(r'\s*[,|•·/]\s*', line_text)
+        segments = re.split(r'\s*[,|•·/—–]\s*| \- ', line_text)
         
         # Clean up segments
         segments = [seg.strip() for seg in segments if seg.strip()]
