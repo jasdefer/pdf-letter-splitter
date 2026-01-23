@@ -77,8 +77,8 @@ All parameters are optional except `-i` (input file):
 | `--verbose` | Show detailed processing information and debug logs | Disabled |
 | `--target-zip` | ZIP code to prioritize when multiple addresses are detected | None |
 | `--jobs N` | Number of parallel OCR jobs (0 = use all CPU cores) | `0` |
-| `--no-rotate` | Disable automatic page rotation correction | Enabled |
-| `--no-deskew` | Disable automatic page deskewing | Enabled |
+| `--no-rotate` | Disable automatic page rotation correction (rotation is on by default) | Rotation enabled |
+| `--no-deskew` | Disable automatic page deskewing (deskewing is on by default) | Deskewing enabled |
 | `-o, --output` | Save OCR text data to TSV file (advanced usage) | None |
 | `--page-data` | Save page analysis data to JSON file (advanced usage) | None |
 
