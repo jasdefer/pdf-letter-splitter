@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 
 from splitter import Letter, TransitionScorer, group_pages_into_letters, SPLIT_THRESHOLD
 from page_analysis_data import (
-    PageAnalysis, LetterPageIndex, TextMarker, AddressBlock, DateMarker
+    PageAnalysis, LetterPageIndex, TextMarker, AddressBlock, DateMarker, SenderBlock
 )
 
 
@@ -79,7 +79,33 @@ class TestLetter(unittest.TestCase):
         
         self.assertIsNone(letter.master_subject)
     
-    def _create_page(self, scan_page_num=1, date=None, subject=None):
+    def test_master_sender_found(self):
+        """Test extracting sender from first page."""
+        page = self._create_page(
+            scan_page_num=1,
+            sender=SenderBlock(
+                found=True,
+                sender_name="Allianz Versicherung"
+            )
+        )
+        letter = Letter(pages=[page])
+        
+        self.assertEqual(letter.master_sender, "Allianz Versicherung")
+    
+    def test_master_sender_not_found(self):
+        """Test master_sender returns None when no sender."""
+        page = self._create_page(scan_page_num=1)
+        letter = Letter(pages=[page])
+        
+        self.assertIsNone(letter.master_sender)
+    
+    def test_master_sender_empty_letter(self):
+        """Test master_sender with empty letter."""
+        letter = Letter(pages=[])
+        
+        self.assertIsNone(letter.master_sender)
+    
+    def _create_page(self, scan_page_num=1, date=None, subject=None, sender=None):
         """Helper to create a minimal PageAnalysis object."""
         return PageAnalysis(
             scan_page_num=scan_page_num,
@@ -88,7 +114,8 @@ class TestLetter(unittest.TestCase):
             goodbye=TextMarker(),
             subject=subject or TextMarker(),
             address_block=AddressBlock(),
-            date=date or DateMarker()
+            date=date or DateMarker(),
+            sender=sender
         )
 
 

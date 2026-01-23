@@ -38,3 +38,4 @@ output.tsv
 
 **/.devcontainer/**
 page-analysis.json
+!Test/test_multi_page.pdf

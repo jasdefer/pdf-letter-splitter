@@ -28,6 +28,12 @@ from page_analyzer import analyze_pages
 from page_analysis_data import write_page_analysis_to_json
 from splitter import group_pages_into_letters
 
+# Import PDFProcessor if available (requires pypdf)
+try:
+    from pdf_processor import PDFProcessor
+except ImportError:
+    PDFProcessor = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -222,13 +228,11 @@ def main():
     parser.add_argument(
         '-i', '--input',
         type=str,
-        default='input.pdf',
         help='Input PDF file path (default: input.pdf)'
     )
     parser.add_argument(
         '-o', '--output',
         type=str,
-        default='output.tsv',
         help='Output TSV file path (default: output.tsv)'
     )
     parser.add_argument(
@@ -262,6 +266,12 @@ def main():
         type=str,
         help='Target recipient ZIP code to prioritize when multiple addresses are found'
     )
+    parser.add_argument(
+        '--split-output',
+        type=str,
+        help='Output directory for split PDF files (one per letter)',
+        default='letters'
+    )
     
     args = parser.parse_args()
     
@@ -292,12 +302,15 @@ def main():
         logger.info(f"Successfully extracted text from {result_df['page_num'].nunique()} pages")
         logger.info(f"Total OCR elements: {len(result_df)}")
         
-        if args.page_data:
+        # Analyze pages and group into letters if needed
+        if args.page_data or args.split_output:
             logger.info("Analyzing pages...")
             pages = analyze_pages(result_df, target_zip=args.target_zip)
-            page_data_path = Path(args.page_data)
-            write_page_analysis_to_json(pages, page_data_path)
-            logger.info(f"Page data written to {page_data_path}")
+            
+            if args.page_data:
+                page_data_path = Path(args.page_data)
+                write_page_analysis_to_json(pages, page_data_path)
+                logger.info(f"Page data written to {page_data_path}")
             
             # Group pages into letters using the splitter
             logger.info("Grouping pages into letters...")
@@ -312,6 +325,17 @@ def main():
                     f"(Date: {letter.master_date or 'N/A'}, "
                     f"Subject: {letter.master_subject or 'N/A'})"
                 )
+            
+            # Split PDF if output directory is specified
+            if args.split_output:
+                if PDFProcessor is None:
+                    logger.error("PDFProcessor requires pypdf. Install with: pip install pypdf")
+                    sys.exit(1)
+                
+                logger.info("Splitting PDF into individual letters...")
+                processor = PDFProcessor(Path(args.split_output))
+                created_files = processor.process_letters(input_path, letters)
+                logger.info(f"Created {len(created_files)} PDF files in {args.split_output}")
         
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=args.verbose)
