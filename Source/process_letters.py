@@ -228,13 +228,11 @@ def main():
     parser.add_argument(
         '-i', '--input',
         type=str,
-        default='input.pdf',
         help='Input PDF file path (default: input.pdf)'
     )
     parser.add_argument(
         '-o', '--output',
         type=str,
-        default='output.tsv',
         help='Output TSV file path (default: output.tsv)'
     )
     parser.add_argument(
@@ -271,7 +269,8 @@ def main():
     parser.add_argument(
         '--split-output',
         type=str,
-        help='Output directory for split PDF files (one per letter)'
+        help='Output directory for split PDF files (one per letter)',
+        default='letters'
     )
     
     args = parser.parse_args()
