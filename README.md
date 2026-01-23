@@ -1,179 +1,264 @@
 # pdf-letter-splitter
 
-A Dockerized tool that automatically splits a scanned PDF containing multiple letters into separate PDF files—one per letter.
+**Automatically split a scanned PDF with multiple letters into separate files—one PDF per letter.**
 
-## What this tool does
+If you have a scanned document containing several letters (for example, from your mailbox), this tool will:
+- Detect where each letter starts and ends
+- Extract metadata like date, sender, and subject
+- Create individual PDF files, one for each letter
+- Name each file based on the extracted information
 
-Takes a single scanned PDF with multiple letters and:
-
-* Runs OCR (German + English) on all pages
-* Detects where each letter begins and ends
-* Extracts metadata (date, sender, subject) from each letter's first page
-* Outputs one PDF file per letter
-
-Fully automatic with no manual intervention required.
+Perfect for organizing scanned correspondence without manual work.
 
 ---
 
-## Input and Output
+## Quick Start
 
-**Input:**
-* A scanned multi-page PDF file
-* Can be rotated, skewed, or contain multiple separate letters
+### Option 1: Use Pre-built Image from Docker Hub
 
-**Output:**
-* One PDF file per detected letter
-* All output files written to a single output directory
-* Filenames based on extracted metadata
-
----
-
-## Output Filename Rules
-
-Filenames are constructed from extracted metadata:
-
-### Fully recognized letters
-
-When date, sender, and subject are all successfully extracted:
-
-```
-YYYYMMDD-Sender-Topic.pdf
+**Bash:**
+```bash
+docker run --rm \
+  -v /path/to/your/input:/input:ro \
+  -v /path/to/your/output:/output \
+  jasdefer/pdf-letter-splitter \
+  -i /input/scanned-letters.pdf \
+  --split-output /output
 ```
 
-Example:
-```
-20241105-Finanzamt-Mahnung.pdf
-```
-
-**Rules:**
-* Date format: `YYYYMMDD` (no separators)
-* Sender: Longest word from sender name, special characters removed
-* Topic: Up to 3 significant words (stop words filtered), concatenated without spaces
-* Fully recognized files do not get a numeric suffix
-
-### Partially recognized letters
-
-When **any** field (date, sender, or subject) is missing:
-
-```
-0_Incomplete_YYYYMMDD-Sender-Topic.pdf
+**PowerShell:**
+```powershell
+docker run --rm `
+  -v C:\path\to\your\input:/input:ro `
+  -v C:\path\to\your\output:/output `
+  jasdefer/pdf-letter-splitter `
+  -i /input/scanned-letters.pdf `
+  --split-output /output
 ```
 
-Example:
-```
-0_Incomplete_20241105-Finanzamt.pdf
-0_Incomplete_Allianz-Invoice.pdf
-```
+Replace `/path/to/your/input` with the folder containing your PDF, and `/path/to/your/output` with where you want the split files saved.
 
-**Rules:**
-* Files are prefixed with `0_Incomplete_` to indicate missing metadata
-* Available metadata is still included in the filename
-* If all metadata is missing: `0_Incomplete_Unknown.pdf`
+### Option 2: Build the Image Yourself
 
-### Filename collisions
-
-If multiple letters would have identical filenames:
-
-```
-20241105-Allianz-Invoice.pdf
-20241105-Allianz-Invoice_1.pdf
-20241105-Allianz-Invoice_2.pdf
-```
-
-A numeric suffix `_1`, `_2`, etc. is appended automatically.
-
----
-
-## OCR and Language Handling
-
-**Languages:**
-* German (primary)
-* English (secondary)
-* Both languages processed simultaneously
-
-**OCR behavior:**
-* Applied once to the entire input PDF
-* Uses Tesseract via OCRmyPDF
-* Automatic page rotation and deskewing
-* Original DPI preserved in output files
-
-**Text extraction:**
-* Positional data captured (bounding boxes for all text)
-* Used to detect document structure markers (addresses, dates, greetings, etc.)
-
----
-
-## Logging Behavior
-
-All processing decisions are logged to standard output:
-
-* Number of pages detected in input PDF
-* Page-by-page split decisions with scores
-* Detected document markers (page indices, addresses, subjects, greetings)
-* Extracted metadata for each letter (date, sender, subject)
-* Output filenames and page ranges for each letter
-
-Example log output:
-
-```
-2026-01-23 14:23:10 - INFO - Processing 15 pages...
-2026-01-23 14:23:45 - DEBUG - Split at Page 4 (Score: 1200). Factors: New Index (+1000), Address Block at top (+450)
-2026-01-23 14:23:45 - INFO - Letter 1: Pages [1, 2, 3] (Date: 2024-11-05, Subject: Mahnung)
-2026-01-23 14:23:45 - INFO - Created 20241105-Finanzamt-Mahnung.pdf (Pages: 1-3)
-```
-
-No separate manifest or metadata files are generated.
-
----
-
-## Docker Usage
-
-### Build the image
-
+**Bash:**
 ```bash
 cd Source
 docker build -t pdf-letter-splitter .
+docker run --rm \
+  -v /path/to/your/input:/input:ro \
+  -v /path/to/your/output:/output \
+  pdf-letter-splitter \
+  -i /input/scanned-letters.pdf \
+  --split-output /output
 ```
 
-### Run the splitter
+**PowerShell:**
+```powershell
+cd Source
+docker build -t pdf-letter-splitter .
+docker run --rm `
+  -v C:\path\to\your\input:/input:ro `
+  -v C:\path\to\your\output:/output `
+  pdf-letter-splitter `
+  -i /input/scanned-letters.pdf `
+  --split-output /output
+```
 
+---
+
+## Command Line Parameters
+
+All parameters are optional except `-i` (input file):
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `-i, --input` | **Required.** Path to input PDF file | None |
+| `--split-output` | Directory where split PDF files will be saved | `letters` |
+| `--verbose` | Show detailed processing information and debug logs | Disabled |
+| `--target-zip` | ZIP code to prioritize when multiple addresses are detected | None |
+| `--jobs N` | Number of parallel OCR jobs (0 = use all CPU cores) | `0` |
+| `--no-rotate` | Disable automatic page rotation correction | Enabled |
+| `--no-deskew` | Disable automatic page deskewing | Enabled |
+| `-o, --output` | Save OCR text data to TSV file (advanced usage) | None |
+| `--page-data` | Save page analysis data to JSON file (advanced usage) | None |
+
+### Example with Parameters
+
+**Bash:**
 ```bash
 docker run --rm \
   -v /path/to/input:/input:ro \
   -v /path/to/output:/output \
-  pdf-letter-splitter \
+  jasdefer/pdf-letter-splitter \
   -i /input/letters.pdf \
-  --split-output /output
+  --split-output /output \
+  --verbose \
+  --jobs 4
 ```
 
-**Arguments:**
-* `-i, --input`: Path to input PDF file
-* `--split-output`: Directory for split PDF output files
-* `--verbose`: Enable detailed debug logging
-* `--target-zip`: ZIP code to prioritize when multiple addresses found
-* `--jobs N`: Number of parallel OCR jobs (0 = use all CPU cores)
-* `--no-rotate`: Disable automatic page rotation correction
-* `--no-deskew`: Disable page deskewing
+**PowerShell:**
+```powershell
+docker run --rm `
+  -v C:\path\to\input:/input:ro `
+  -v C:\path\to\output:/output `
+  jasdefer/pdf-letter-splitter `
+  -i /input/letters.pdf `
+  --split-output /output `
+  --verbose `
+  --jobs 4
+```
+
+---
+
+## How It Works
+
+1. **OCR Processing**: The tool scans your PDF using OCR (Optical Character Recognition) to extract all text
+2. **Language Support**: Recognizes German and English text automatically
+3. **Letter Detection**: Analyzes the document structure to find where each letter begins and ends
+4. **Metadata Extraction**: Identifies the date, sender, and subject from each letter's first page
+5. **File Creation**: Saves each letter as a separate PDF with a descriptive filename
+
+The entire process is fully automatic—no user interaction required.
+
+---
+
+## Output Files
+
+### File Naming
+
+Each output file is named based on extracted metadata:
+
+**Complete metadata found:**
+```
+20241105-Finanzamt-Mahnung.pdf
+20241220-Allianz-Versicherungspolice.pdf
+```
+
+Format: `YYYYMMDD-Sender-Topic.pdf`
+- **Date**: `YYYYMMDD` format (e.g., `20241105` for November 5, 2024)
+- **Sender**: Main word from sender's name
+- **Topic**: Key words from subject line (up to 3 words)
+
+**Missing metadata (incomplete):**
+```
+0_Incomplete_20241105-Finanzamt.pdf
+0_Incomplete_Unknown.pdf
+```
+
+When date, sender, or subject cannot be extracted, files are prefixed with `0_Incomplete_`. This helps you quickly identify which letters need manual review.
+
+**Duplicate names:**
+```
+20241105-Bank-Statement.pdf
+20241105-Bank-Statement_1.pdf
+20241105-Bank-Statement_2.pdf
+```
+
+If multiple letters would have the same filename, a number suffix is added automatically.
+
+---
+
+## OCR and Language Processing
+
+**Supported Languages:**
+- German (primary)
+- English (secondary)
+
+**OCR Features:**
+- Automatic page rotation correction
+- Automatic deskewing of tilted pages
+- High-quality text extraction with position data
+- Preserves original scan resolution (DPI)
+
+**What Gets Extracted:**
+- Date markers
+- Sender information from letterheads
+- Recipient addresses
+- Subject lines
+- Greetings and closings
+- Page numbering (e.g., "Page 1 of 3")
+
+---
+
+## Processing Output and Logs
+
+The tool logs all decisions to the console:
+
+```
+2026-01-23 14:23:10 - INFO - Processing 15 pages...
+2026-01-23 14:23:45 - DEBUG - Split at Page 4 (Score: 1200)
+2026-01-23 14:23:45 - INFO - Letter 1: Pages [1, 2, 3] (Date: 2024-11-05, Subject: Mahnung)
+2026-01-23 14:23:45 - INFO - Created 20241105-Finanzamt-Mahnung.pdf (Pages: 1-3)
+2026-01-23 14:23:46 - INFO - Letter 2: Pages [4, 5] (Date: N/A, Subject: N/A)
+2026-01-23 14:23:46 - INFO - Created 0_Incomplete_Unknown.pdf (Pages: 4-5)
+```
+
+You'll see:
+- How many pages were found
+- Where letters were split
+- What metadata was extracted
+- Final output filenames
+
+Use `--verbose` for detailed debug information.
 
 ---
 
 ## Known Limitations
 
-**Expected failure modes:**
+**This tool uses heuristics and OCR—it will not be 100% accurate.**
 
-* **Mis-splits**: The tool may split a single letter into multiple files, or combine multiple letters into one file
-* **Metadata extraction errors**: Dates, senders, or subjects may be incorrectly extracted or missed entirely
-* **Non-standard layouts**: Letters with unusual formatting may not be detected correctly
-* **Low-quality scans**: Poor scan quality reduces OCR accuracy and increases errors
+**Common Issues:**
 
-**By design:**
+1. **Mis-splits**: May split one letter into multiple files or combine separate letters
+2. **Metadata errors**: Dates, senders, or subjects may be wrong or missing
+3. **Non-standard layouts**: Unusual letter formats may not be recognized correctly
+4. **Poor scans**: Low quality, faded, or handwritten text reduces accuracy
+5. **Language**: Only German and English are supported
 
-* No manual review or correction workflow
-* No confidence scores or warnings for uncertain splits
-* No support for languages other than German and English
-* Assumes Western-style letter format (address block, date, subject, greeting, body, closing)
+**By Design:**
 
-**This is a heuristic-based tool.** Manual review and correction of output is expected when accuracy is critical.
+- No manual review or correction step
+- No confidence scores or warnings
+- Assumes standard Western business letter format
+- Best effort only—manual verification recommended for important documents
+
+**Recommendation:** Always review the output files, especially those marked `0_Incomplete_`.
+
+---
+
+## Advanced Usage
+
+### Save OCR Data
+
+Extract raw OCR text with position data to a TSV file:
+
+**Bash:**
+```bash
+docker run --rm -v /path/to/files:/work jasdefer/pdf-letter-splitter \
+  -i /work/input.pdf -o /work/output.tsv
+```
+
+**PowerShell:**
+```powershell
+docker run --rm -v C:\path\to\files:/work jasdefer/pdf-letter-splitter `
+  -i /work/input.pdf -o /work/output.tsv
+```
+
+### Save Page Analysis Data
+
+Export page analysis results to JSON:
+
+**Bash:**
+```bash
+docker run --rm -v /path/to/files:/work jasdefer/pdf-letter-splitter \
+  -i /work/input.pdf --page-data /work/analysis.json
+```
+
+**PowerShell:**
+```powershell
+docker run --rm -v C:\path\to\files:/work jasdefer/pdf-letter-splitter `
+  -i /work/input.pdf --page-data /work/analysis.json
+```
 
 ---
 
@@ -183,4 +268,4 @@ This project is licensed under the MIT License.
 
 Copyright (c) 2026 Justus Bonz
 
-See [LICENSE](LICENSE) file for full license text.
+See [LICENSE](LICENSE) file for details.
