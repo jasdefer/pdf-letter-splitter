@@ -35,3 +35,6 @@ output.tsv
 .env
 
 !Test/test.pdf
+
+**/.devcontainer/**
+page-analysis.json
