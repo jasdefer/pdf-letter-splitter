@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 from pdf_processor import PDFProcessor
 from splitter import Letter
 from page_analysis_data import (
-    PageAnalysis, LetterPageIndex, TextMarker, AddressBlock, DateMarker
+    PageAnalysis, LetterPageIndex, TextMarker, AddressBlock, DateMarker, SenderBlock
 )
 
 
@@ -67,11 +67,9 @@ class TestPDFProcessor(unittest.TestCase):
     def test_extract_sender_single_word(self):
         """Test sender extraction with single word name."""
         page = self._create_page(
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz"
             )
         )
         letter = Letter(pages=[page])
@@ -83,11 +81,9 @@ class TestPDFProcessor(unittest.TestCase):
     def test_extract_sender_multiple_words(self):
         """Test sender extraction with multiple words - uses longest."""
         page = self._create_page(
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Deutsche Telekom AG",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Deutsche Telekom AG"
             )
         )
         letter = Letter(pages=[page])
@@ -100,11 +96,9 @@ class TestPDFProcessor(unittest.TestCase):
     def test_extract_sender_with_special_characters(self):
         """Test sender extraction with special characters removed."""
         page = self._create_page(
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Müller & Co. GmbH",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Müller & Co. GmbH"
             )
         )
         letter = Letter(pages=[page])
@@ -226,11 +220,9 @@ class TestPDFProcessor(unittest.TestCase):
         date_val = datetime(2026, 1, 22)
         page = self._create_page(
             date=DateMarker(found=True, date_value=date_val, raw="2026-01-22"),
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz Versicherung",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz Versicherung"
             ),
             subject=TextMarker(
                 found=True,
@@ -249,11 +241,9 @@ class TestPDFProcessor(unittest.TestCase):
     def test_construct_filename_incomplete_missing_date(self):
         """Test filename with missing date is marked incomplete."""
         page = self._create_page(
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz"
             ),
             subject=TextMarker(
                 found=True,
@@ -297,11 +287,9 @@ class TestPDFProcessor(unittest.TestCase):
         date_val = datetime(2026, 1, 22)
         page = self._create_page(
             date=DateMarker(found=True, date_value=date_val, raw="2026-01-22"),
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz"
             )
         )
         letter = Letter(pages=[page])
@@ -329,11 +317,9 @@ class TestPDFProcessor(unittest.TestCase):
         long_subject = "A " * 200  # Very long subject
         page = self._create_page(
             date=DateMarker(found=True, date_value=date_val, raw="2026-01-22"),
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz"
             ),
             subject=TextMarker(
                 found=True,
@@ -385,7 +371,7 @@ class TestPDFProcessor(unittest.TestCase):
         # Should append _3
         self.assertEqual(result.name, "20260122-Allianz-Invoice_3.pdf")
     
-    def _create_page(self, scan_page_num=1, date=None, subject=None, address_block=None):
+    def _create_page(self, scan_page_num=1, date=None, subject=None, address_block=None, sender=None):
         """Helper to create a minimal PageAnalysis object."""
         return PageAnalysis(
             scan_page_num=scan_page_num,
@@ -394,7 +380,8 @@ class TestPDFProcessor(unittest.TestCase):
             goodbye=TextMarker(),
             subject=subject or TextMarker(),
             address_block=address_block or AddressBlock(),
-            date=date or DateMarker()
+            date=date or DateMarker(),
+            sender=sender
         )
 
 

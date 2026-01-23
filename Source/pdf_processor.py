@@ -213,7 +213,7 @@ class PDFProcessor:
         """
         Extract and sanitize sender name from letter.
         
-        Takes extracted_name from address block, removes special characters,
+        Uses sender_name from sender block, removes special characters,
         and uses the longest word if there are multiple words.
         
         Args:
@@ -222,17 +222,13 @@ class PDFProcessor:
         Returns:
             Sanitized sender name, or None if not found
         """
-        if not letter.pages:
+        # Use master_sender property which extracts from sender block
+        sender_name = letter.master_sender
+        if not sender_name:
             return None
-        
-        first_page = letter.pages[0]
-        if not first_page.address_block.found or not first_page.address_block.extracted_name:
-            return None
-        
-        extracted_name = first_page.address_block.extracted_name
         
         # Remove special characters (keep letters, numbers, spaces)
-        sanitized = re.sub(r'[^a-zA-Z0-9\s]', '', extracted_name)
+        sanitized = re.sub(r'[^a-zA-Z0-9\s]', '', sender_name)
         
         # Split into words and find the longest one
         words = sanitized.split()

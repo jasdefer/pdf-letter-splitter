@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 from pdf_processor import PDFProcessor
 from splitter import Letter
 from page_analysis_data import (
-    PageAnalysis, LetterPageIndex, TextMarker, AddressBlock, DateMarker
+    PageAnalysis, LetterPageIndex, TextMarker, AddressBlock, DateMarker, SenderBlock
 )
 
 # Try to import pypdf
@@ -58,11 +58,9 @@ class TestPDFProcessorIntegration(unittest.TestCase):
         page = self._create_page(
             scan_page_num=1,
             date=DateMarker(found=True, date_value=date_val, raw="2026-01-22"),
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz"
             ),
             subject=TextMarker(
                 found=True,
@@ -97,12 +95,10 @@ class TestPDFProcessorIntegration(unittest.TestCase):
             self._create_page(
                 scan_page_num=1,
                 date=DateMarker(found=True, date_value=date_val, raw="2026-01-22"),
-                address_block=AddressBlock(
-                    found=True,
-                    extracted_name="Allianz",
-                    x_rel=0.1,
-                    y_rel=0.2
-                ),
+                sender=SenderBlock(
+                found=True,
+                sender_name="Allianz"
+            ),
                 subject=TextMarker(
                     found=True,
                     raw="Annual Report",
@@ -139,12 +135,10 @@ class TestPDFProcessorIntegration(unittest.TestCase):
             self._create_page(
                 scan_page_num=1,
                 date=DateMarker(found=True, date_value=date_val1, raw="2026-01-22"),
-                address_block=AddressBlock(
-                    found=True,
-                    extracted_name="Allianz",
-                    x_rel=0.1,
-                    y_rel=0.2
-                ),
+                sender=SenderBlock(
+                found=True,
+                sender_name="Allianz"
+            ),
                 subject=TextMarker(
                     found=True,
                     raw="Invoice",
@@ -159,12 +153,10 @@ class TestPDFProcessorIntegration(unittest.TestCase):
             self._create_page(
                 scan_page_num=2,
                 date=DateMarker(found=True, date_value=date_val2, raw="2026-01-23"),
-                address_block=AddressBlock(
-                    found=True,
-                    extracted_name="Deutsche Bank",
-                    x_rel=0.1,
-                    y_rel=0.2
-                ),
+                sender=SenderBlock(
+                found=True,
+                sender_name="Deutsche Bank"
+            ),
                 subject=TextMarker(
                     found=True,
                     raw="Statement",
@@ -202,11 +194,9 @@ class TestPDFProcessorIntegration(unittest.TestCase):
         # Create a letter with missing date
         page = self._create_page(
             scan_page_num=1,
-            address_block=AddressBlock(
+            sender=SenderBlock(
                 found=True,
-                extracted_name="Allianz",
-                x_rel=0.1,
-                y_rel=0.2
+                sender_name="Allianz"
             ),
             subject=TextMarker(
                 found=True,
@@ -241,12 +231,10 @@ class TestPDFProcessorIntegration(unittest.TestCase):
                 self._create_page(
                     scan_page_num=page_num,
                     date=DateMarker(found=True, date_value=date_val, raw="2026-01-22"),
-                    address_block=AddressBlock(
-                        found=True,
-                        extracted_name="Allianz",
-                        x_rel=0.1,
-                        y_rel=0.2
-                    ),
+                    sender=SenderBlock(
+                found=True,
+                sender_name="Allianz"
+            ),
                     subject=TextMarker(
                         found=True,
                         raw="Invoice",
@@ -271,7 +259,7 @@ class TestPDFProcessorIntegration(unittest.TestCase):
         # Second file should have _1 suffix
         self.assertEqual(created_files[1].name, "20260122-Allianz-Invoice_1.pdf")
     
-    def _create_page(self, scan_page_num=1, date=None, subject=None, address_block=None):
+    def _create_page(self, scan_page_num=1, date=None, subject=None, address_block=None, sender=None):
         """Helper to create a minimal PageAnalysis object."""
         return PageAnalysis(
             scan_page_num=scan_page_num,
@@ -280,7 +268,8 @@ class TestPDFProcessorIntegration(unittest.TestCase):
             goodbye=TextMarker(),
             subject=subject or TextMarker(),
             address_block=address_block or AddressBlock(),
-            date=date or DateMarker()
+            date=date or DateMarker(),
+            sender=sender
         )
 
 

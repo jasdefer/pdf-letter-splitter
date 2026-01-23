@@ -62,6 +62,21 @@ class Letter:
         if first_page.subject.found and first_page.subject.raw:
             return first_page.subject.raw
         return None
+    
+    @property
+    def master_sender(self) -> Optional[str]:
+        """
+        Extract the sender name from the first page of the letter.
+        
+        Returns:
+            Sender name string if found on first page, None otherwise
+        """
+        if not self.pages:
+            return None
+        first_page = self.pages[0]
+        if first_page.sender and first_page.sender.found and first_page.sender.sender_name:
+            return first_page.sender.sender_name
+        return None
 
 
 class TransitionScorer:
