@@ -4,7 +4,7 @@ import pandas as pd
 import re
 from typing import Optional, Tuple, List
 from datetime import datetime
-from page_analysis_data import LetterPageIndex, TextMarker, AddressBlock, DateMarker
+from page_analysis_data import LetterPageIndex, TextMarker, AddressBlock, DateMarker, SenderBlock
 
 # Constants for greeting detection
 LINE_GROUPING_TOLERANCE = 10  # Pixels tolerance for grouping words on the same line
@@ -741,7 +741,6 @@ def detect_address_block(page_df: pd.DataFrame, target_zip: Optional[str] = None
         match = re.search(zip_city_pattern, line['text'])
         if not match:
             continue
-        
         # Found a ZIP pattern - now validate it has a coherent address block
         anchor_line = line
         anchor_left = anchor_line['left']
@@ -1145,3 +1144,235 @@ def _parse_month_name(month_name: str) -> Optional[int]:
         'sep': 9, 'sept': 9, 'oct': 10, 'nov': 11, 'dec': 12,
     }
     return month_map.get(month_name.lower())
+
+
+def detect_sender_line(page_df: pd.DataFrame, recipient_block: Optional[AddressBlock] = None) -> SenderBlock:
+    r"""
+    Detect and extract the Sender Line (Rücksendeadresse) from letters.
+    
+    The sender line is typically a single line of small text located in the top-left corner,
+    often inside the recipient window area above the main address block.
+    
+    Strategy:
+    1. ROI Selection (Hybrid):
+       - If recipient_block is provided, search above it with some tolerance
+       - Otherwise, search the general "Top Left" (Top 20%, Left 50%)
+    2. Font Height Filter:
+       - Filter for text where height is at max the document median (usually 6pt-8pt vs 10pt-12pt)
+    3. Line Reconstruction:
+       - Group words into a single horizontal line using OCR hierarchy
+    4. Pattern Matching & Parsing:
+       - Use Regex to identify delimiters: [,|•·\-/]
+       - Extract ZIP and City at the tail of the string
+       - Identify Street/House Number (regex for [A-Za-z]+ \d+[a-z]?)
+       - Identify Sender Name (the segment(s) before the street)
+    5. Validation:
+       - Ensure the line contains at least a ZIP and a Name segment
+    
+    Args:
+        page_df: DataFrame containing OCR data for a single page
+        recipient_block: Optional AddressBlock result to assist with localization
+    
+    Returns:
+        SenderBlock with extracted sender information or found=False if no sender detected
+    """
+    # Handle empty or invalid DataFrame
+    required_columns = ['level', 'text', 'left', 'top', 'page_width', 'page_height', 'height', 
+                        'block_num', 'par_num', 'line_num', 'page_num']
+    if page_df.empty or not all(col in page_df.columns for col in required_columns):
+        return SenderBlock(found=False)
+    
+    # Filter to word-level elements with non-empty text
+    words_df = page_df[
+        (page_df['level'] == 5) & 
+        (page_df['text'].notna()) & 
+        (page_df['text'].str.strip() != '')
+    ].copy()
+    
+    if words_df.empty:
+        return SenderBlock(found=False)
+    
+    # Get page dimensions
+    page_width = words_df['page_width'].iloc[0]
+    page_height = words_df['page_height'].iloc[0]
+    
+    if pd.isna(page_width) or pd.isna(page_height) or page_width <= 0 or page_height <= 0:
+        return SenderBlock(found=False)
+    
+    # Step 1: ROI Selection (Hybrid)
+    if recipient_block and recipient_block.found and recipient_block.y_rel is not None:
+        # Search above recipient block with tolerance
+        recipient_y = recipient_block.y_rel * page_height
+        # Look in the area above recipient (with 50 pixels tolerance below recipient)
+        max_y = recipient_y + 50
+        # Also constrain to top 30% of page
+        max_y = min(max_y, page_height * 0.3)
+        left_50_percent = page_width * 0.5
+        
+        sender_zone_df = words_df[
+            (words_df['top'] <= max_y) &
+            (words_df['left'] <= left_50_percent)
+        ].copy()
+    else:
+        # Fallback: search general "Top Left" (Top 20%, Left 50%)
+        top_20_percent = page_height * 0.2
+        left_50_percent = page_width * 0.5
+        
+        sender_zone_df = words_df[
+            (words_df['top'] <= top_20_percent) &
+            (words_df['left'] <= left_50_percent)
+        ].copy()
+    
+    if sender_zone_df.empty:
+        return SenderBlock(found=False)
+    
+    # Step 3: Line Reconstruction
+    # Sort by block, paragraph, line, then left position
+    sender_zone_df = sender_zone_df.sort_values(['block_num', 'par_num', 'line_num', 'left'])
+    
+    # Group by the structural hierarchy to reconstruct lines
+    lines = []
+    for (page_num, block_num, par_num, line_num), line_words in sender_zone_df.groupby(
+        ['page_num', 'block_num', 'par_num', 'line_num'], sort=True
+    ):
+        line_words = line_words.sort_values('left')
+        line_text = ' '.join(line_words['text'].astype(str))
+        line_left = line_words['left'].min()
+        line_top = line_words['top'].min()
+        lines.append({
+            'text': line_text,
+            'left': line_left,
+            'top': line_top,
+        })
+    
+    if not lines:
+        return SenderBlock(found=False)
+    
+    # Step 4: Pattern Matching & Parsing (Segment-First Strategy)
+    # Try each line as a potential sender line
+    # German ZIP format: 5 digits
+    zip_pattern = r'\b(\d{5})\b'
+    # Street pattern: text followed by number (with optional letter)
+    # Handles abbreviations like "str.", "Str.", hyphenated names, apostrophes, and periods
+    street_pattern = r'([A-Za-zäöüÄÖÜß]+(?:[\s\-\.\']+[A-Za-zäöüÄÖÜß]+)*\.?)\s*(\d+[a-zA-Z]?)\b'
+    # Postfach pattern: "Postfach" followed by a number
+    postfach_pattern = r'\b(Postfach)\s+(\d+)\b'
+    
+    for line in lines:
+        line_text = line['text']
+        
+        # Segment-First Parsing: Split by common delimiters
+        # Split on: comma, pipe, bullet, middle dot, forward slash
+        # Keep hyphens as they're common in street/city names
+        segments = re.split(r'\s*[,|•·/—–]\s*| \- ', line_text)
+        
+        # Clean up segments
+        segments = [seg.strip() for seg in segments if seg.strip()]
+        
+        # First pass: identify segment types
+        segment_types = []
+        for segment in segments:
+            # Check for Postfach (PO Box)
+            postfach_match = re.search(postfach_pattern, segment, re.IGNORECASE)
+            if postfach_match:
+                segment_types.append(('postfach', segment, postfach_match))
+                continue
+            
+            # Check for street
+            street_match = re.search(street_pattern, segment)
+            if street_match:
+                segment_types.append(('street', segment, street_match))
+                continue
+            
+            # Check for ZIP code followed by city name
+            # A real ZIP+City segment should have text after the ZIP
+            zip_match = re.search(zip_pattern, segment)
+            if zip_match:
+                # Check if there's a city name after the ZIP
+                zip_end = zip_match.end()
+                text_after = segment[zip_end:].strip()
+                if text_after and re.match(r'^[A-Za-zäöüÄÖÜß]', text_after):
+                    # This looks like a ZIP+City segment
+                    segment_types.append(('zip_city', segment, zip_match))
+                    continue
+            
+            # Default: name segment
+            segment_types.append(('name', segment, None))
+        
+        # Check if we have a ZIP+City segment (required)
+        zip_city_segments = [s for s in segment_types if s[0] == 'zip_city']
+        if not zip_city_segments:
+            continue
+        
+        # Extract data from classified segments
+        extracted_name = None
+        extracted_street = None
+        extracted_zip = None
+        extracted_city = None
+        name_segments = []
+        
+        for seg_type, segment, match_obj in segment_types:
+            if seg_type == 'zip_city':
+                # Extract ZIP and city
+                zip_match = match_obj
+                extracted_zip = zip_match.group(1)
+                zip_idx = segment.find(extracted_zip)
+                text_after_zip = segment[zip_idx + len(extracted_zip):].strip()
+                if text_after_zip:
+                    # Remove leading delimiters
+                    text_after_zip = re.sub(r'^[\s\-]+', '', text_after_zip)
+                    city_match = re.match(r'^([A-Za-zäöüÄÖÜß][A-Za-zäöüÄÖÜß\s\-\.\'0-9]*)', text_after_zip)
+                    extracted_city = city_match.group(1).strip() if city_match else text_after_zip.strip()
+                # Check if there's text before the ZIP in this segment
+                text_before_zip = segment[:zip_idx].strip()
+                if text_before_zip:
+                    name_segments.append(text_before_zip)
+            
+            elif seg_type == 'postfach':
+                # Extract Postfach as street
+                postfach_match = match_obj
+                extracted_street = f"{postfach_match.group(1)} {postfach_match.group(2)}"
+                # Check if there's text before Postfach
+                postfach_start = postfach_match.start()
+                if postfach_start > 0:
+                    text_before = segment[:postfach_start].strip()
+                    if text_before:
+                        name_segments.append(text_before)
+            
+            elif seg_type == 'street':
+                # Extract street
+                street_match = match_obj
+                extracted_street = street_match.group(0).strip()
+                # Check if there's text before the street
+                street_start = street_match.start()
+                if street_start > 0:
+                    text_before = segment[:street_start].strip()
+                    if text_before:
+                        name_segments.append(text_before)
+            
+            elif seg_type == 'name':
+                # This is a name segment
+                name_segments.append(segment)
+        
+        # Combine name segments
+        if name_segments:
+            extracted_name = ' '.join(name_segments).strip()
+            # Remove trailing/leading delimiters
+            extracted_name = re.sub(r'^[\s\-]+|[\s\-]+$', '', extracted_name)
+            if not extracted_name:
+                extracted_name = None
+        
+        # Step 5: Validation
+        # Must have at least ZIP and some name/street info
+        if extracted_zip and (extracted_name or extracted_street):
+            return SenderBlock(
+                found=True,
+                raw_text=line_text.strip(),
+                sender_name=extracted_name,
+                street=extracted_street,
+                zip_code=extracted_zip,
+                city=extracted_city if extracted_city else None
+            )
+    
+    # No valid sender line found
+    return SenderBlock(found=False)

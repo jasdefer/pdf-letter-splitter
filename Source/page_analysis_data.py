@@ -47,6 +47,16 @@ class DateMarker:
 
 
 @dataclass
+class SenderBlock:
+    found: bool = False
+    raw_text: Optional[str] = None
+    sender_name: Optional[str] = None
+    street: Optional[str] = None
+    zip_code: Optional[str] = None
+    city: Optional[str] = None
+
+
+@dataclass
 class PageAnalysis:
     scan_page_num: int
     letter_page_index: LetterPageIndex
@@ -55,6 +65,7 @@ class PageAnalysis:
     subject: TextMarker
     address_block: AddressBlock
     date: DateMarker
+    sender: Optional[SenderBlock] = None
 
 
 def write_page_analysis_to_json(page_analysis_list: list[PageAnalysis], output_path: Path) -> None:

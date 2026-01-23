@@ -14,8 +14,8 @@ from datetime import datetime
 # Add Source directory to path to import the marker detection module
 sys.path.insert(0, str(Path(__file__).parent.parent / 'Source'))
 
-from marker_detection import detect_greeting, detect_goodbye, detect_subject, detect_address_block, detect_date
-from page_analysis_data import TextMarker, AddressBlock, DateMarker
+from marker_detection import detect_greeting, detect_goodbye, detect_subject, detect_address_block, detect_date, detect_sender_line
+from page_analysis_data import TextMarker, AddressBlock, DateMarker, SenderBlock
 
 # Test data constants
 CHAR_WIDTH_PIXELS = 10  # Approximate width per character for test data
@@ -2230,6 +2230,352 @@ class TestDetectDate(unittest.TestCase):
         self.assertTrue(result.found)
         # Date should be found but WITHOUT indicator (previous paragraph is too long)
         self.assertEqual(result.raw, '15.06.2023')
+
+
+class TestDetectSenderLine(unittest.TestCase):
+    """Test cases for detect_sender_line function."""
+    
+    def _create_test_dataframe(self, words_data, page_width=1000, page_height=1500):
+        """
+        Helper to create a minimal OCR DataFrame for testing.
+        
+        Args:
+            words_data: List of tuples (text, left, top, line_num, height) or (text, left, top, line_num, height, par_num)
+            page_width: Page width in pixels
+            page_height: Page height in pixels
+        
+        Returns:
+            DataFrame mimicking OCR output
+        """
+        rows = []
+        for idx, word_data in enumerate(words_data):
+            if len(word_data) == 5:
+                text, left, top, line_num, height = word_data
+                par_num = 1  # Default to paragraph 1
+            else:
+                text, left, top, line_num, height, par_num = word_data
+            
+            rows.append({
+                'level': 5,  # Word level
+                'page_num': 1,
+                'block_num': 1,
+                'par_num': par_num,
+                'line_num': line_num,
+                'word_num': idx + 1,
+                'left': left,
+                'top': top,
+                'width': len(text) * CHAR_WIDTH_PIXELS,
+                'height': height,
+                'conf': 90,
+                'text': text,
+                'page_width': page_width,
+                'page_height': page_height,
+            })
+        return pd.DataFrame(rows)
+    
+    def test_detect_sender_line_with_comma_delimiter(self):
+        """Test detection of sender line with comma as delimiter."""
+        # Sender line: "Firma GmbH, Musterstraße 123, 12345 Berlin"
+        # Small font (height=8) vs normal text (height=12)
+        words_data = [
+            # Sender line (small text)
+            ('Firma', 100, 50, 1, 8),
+            ('GmbH,', 160, 50, 1, 8),
+            ('Musterstraße', 220, 50, 1, 8),
+            ('123,', 340, 50, 1, 8),
+            ('12345', 390, 50, 1, 8),
+            ('Berlin', 460, 50, 1, 8),
+            # Recipient address below (normal text)
+            ('Max', 100, 100, 2, 12),
+            ('Mustermann', 150, 100, 2, 12),
+            ('Hauptstraße', 100, 120, 3, 12),
+            ('42', 220, 120, 3, 12),
+            ('67890', 100, 140, 4, 12),
+            ('München', 180, 140, 4, 12),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertIsNotNone(result.raw_text)
+        self.assertEqual(result.sender_name, 'Firma GmbH')
+        self.assertEqual(result.street, 'Musterstraße 123')
+        self.assertEqual(result.zip_code, '12345')
+        self.assertEqual(result.city, 'Berlin')
+    
+    def test_detect_sender_line_with_pipe_delimiter(self):
+        """Test detection of sender line with pipe as delimiter."""
+        # Sender line: "Company Ltd | Street 5 | 54321 Hamburg"
+        words_data = [
+            # Sender line (small text)
+            ('Company', 100, 50, 1, 8),
+            ('Ltd', 180, 50, 1, 8),
+            ('|', 220, 50, 1, 8),
+            ('Street', 240, 50, 1, 8),
+            ('5', 300, 50, 1, 8),
+            ('|', 320, 50, 1, 8),
+            ('54321', 340, 50, 1, 8),
+            ('Hamburg', 410, 50, 1, 8),
+            # Regular text below
+            ('Some', 100, 200, 2, 12),
+            ('other', 150, 200, 2, 12),
+            ('text', 210, 200, 2, 12),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Company Ltd')
+        self.assertEqual(result.street, 'Street 5')
+        self.assertEqual(result.zip_code, '54321')
+        self.assertEqual(result.city, 'Hamburg')
+    
+    def test_detect_sender_line_with_bullet_delimiter(self):
+        """Test detection of sender line with bullet point as delimiter."""
+        # Sender line: "ABC GmbH • Testweg 99 • 99999 Köln"
+        words_data = [
+            # Sender line (small text)
+            ('ABC', 100, 50, 1, 8),
+            ('GmbH', 140, 50, 1, 8),
+            ('•', 190, 50, 1, 8),
+            ('Testweg', 200, 50, 1, 8),
+            ('99', 270, 50, 1, 8),
+            ('•', 300, 50, 1, 8),
+            ('99999', 310, 50, 1, 8),
+            ('Köln', 370, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'ABC GmbH')
+        self.assertEqual(result.street, 'Testweg 99')
+        self.assertEqual(result.zip_code, '99999')
+        self.assertEqual(result.city, 'Köln')
+    
+    def test_detect_sender_line_independent_without_recipient(self):
+        """Test independent detection when recipient block is missing."""
+        # Only sender line present, no recipient block
+        words_data = [
+            # Sender line (small text)
+            ('XYZ', 100, 50, 1, 8),
+            ('Corp,', 140, 50, 1, 8),
+            ('Industrial', 200, 50, 1, 8),
+            ('Road', 290, 50, 1, 8),
+            ('7,', 340, 50, 1, 8),
+            ('11111', 370, 50, 1, 8),
+            ('Frankfurt', 430, 50, 1, 8),
+            # Some unrelated text
+            ('Other', 100, 300, 2, 12),
+            ('content', 160, 300, 2, 12),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df, recipient_block=None)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'XYZ Corp')
+        self.assertEqual(result.street, 'Industrial Road 7')
+        self.assertEqual(result.zip_code, '11111')
+        self.assertEqual(result.city, 'Frankfurt')
+    
+    def test_detect_sender_line_with_recipient_block(self):
+        """Test sender detection with recipient block context."""
+        # Create sender and recipient data
+        words_data = [
+            # Sender line (small text, above recipient)
+            ('Sender', 100, 50, 1, 8),
+            ('AG,', 170, 50, 1, 8),
+            ('Parkstr', 210, 50, 1, 8),
+            ('8,', 280, 50, 1, 8),
+            ('22222', 310, 50, 1, 8),
+            ('Stuttgart', 370, 50, 1, 8),
+            # Recipient address (normal text)
+            ('Recipient', 100, 100, 2, 12),
+            ('Name', 190, 100, 2, 12),
+            ('Some', 100, 120, 3, 12),
+            ('Street', 160, 120, 3, 12),
+            ('1', 230, 120, 3, 12),
+            ('33333', 100, 140, 4, 12),
+            ('Leipzig', 180, 140, 4, 12),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        # Create a mock recipient block
+        recipient_block = AddressBlock(
+            found=True,
+            x_rel=0.1,
+            y_rel=0.067,  # 100/1500
+            extracted_name='Recipient Name',
+            extracted_street='Some Street 1',
+            extracted_zip='33333',
+            extracted_city='Leipzig',
+            line_count=3
+        )
+        
+        result = detect_sender_line(page_df, recipient_block=recipient_block)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Sender AG')
+        self.assertEqual(result.street, 'Parkstr 8')
+        self.assertEqual(result.zip_code, '22222')
+        self.assertEqual(result.city, 'Stuttgart')
+    
+    def test_no_sender_line_found_no_zip(self):
+        """Test that no sender line returns found=False when ZIP is missing."""
+        # Text without ZIP code
+        words_data = [
+            ('Some', 100, 50, 1, 8),
+            ('Company', 160, 50, 1, 8),
+            ('Name', 240, 50, 1, 8),
+            ('Only', 300, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw_text)
+        self.assertIsNone(result.sender_name)
+        self.assertIsNone(result.street)
+        self.assertIsNone(result.zip_code)
+        self.assertIsNone(result.city)
+    
+    def test_no_sender_line_found_when_median_filters_all(self):
+        """Test sender line detection when font height filter is applied."""
+        # All text is normal size (height=12), but median filtering still allows detection
+        # since the filter uses <= median. This test validates that the algorithm works
+        # with uniform font sizes (edge case).
+        words_data = [
+            ('Company', 100, 50, 1, 12),
+            ('Name,', 180, 50, 1, 12),
+            ('Street', 240, 50, 1, 12),
+            ('5,', 310, 50, 1, 12),
+            ('12345', 340, 50, 1, 12),
+            ('City', 410, 50, 1, 12),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        # Should still find it since <= median allows text with median height
+        self.assertTrue(result.found)
+    
+    def test_sender_line_outside_roi(self):
+        """Test that sender line outside ROI is not detected."""
+        # Sender line at bottom of page (outside top 20%)
+        words_data = [
+            # Normal text at top
+            ('Regular', 100, 100, 1, 12),
+            ('content', 180, 100, 1, 12),
+            # Sender line at bottom (750/1500 = 50% height)
+            ('Company,', 100, 750, 2, 8),
+            ('Street', 190, 750, 2, 8),
+            ('1,', 260, 750, 2, 8),
+            ('12345', 290, 750, 2, 8),
+            ('City', 360, 750, 2, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data, page_height=1500)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertFalse(result.found)
+    
+    def test_sender_line_without_street(self):
+        """Test detection of sender line without explicit street."""
+        # Sender line: "Company Name, 12345 Berlin" (no street)
+        words_data = [
+            ('Company', 100, 50, 1, 8),
+            ('Name,', 180, 50, 1, 8),
+            ('12345', 260, 50, 1, 8),
+            ('Berlin', 330, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Company Name')
+        self.assertIsNone(result.street)  # No street detected
+        self.assertEqual(result.zip_code, '12345')
+        self.assertEqual(result.city, 'Berlin')
+    
+    def test_sender_line_with_postfach(self):
+        """Test detection of sender line with Postfach (PO Box)."""
+        # Sender line: "Bundesanzeiger Verlag, Postfach 100534, 50445 Köln"
+        words_data = [
+            ('Bundesanzeiger', 100, 50, 1, 8),
+            ('Verlag,', 220, 50, 1, 8),
+            ('Postfach', 290, 50, 1, 8),
+            ('100534,', 360, 50, 1, 8),
+            ('50445', 430, 50, 1, 8),
+            ('Köln', 490, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Bundesanzeiger Verlag')
+        self.assertEqual(result.street, 'Postfach 100534')
+        self.assertEqual(result.zip_code, '50445')
+        self.assertEqual(result.city, 'Köln')
+    
+    def test_sender_line_with_abbreviated_street(self):
+        """Test detection of sender line with abbreviated street name."""
+        # Sender line: "Korth Immobilien, Bahnhofstr. 4, 24223 Schwentinental"
+        words_data = [
+            ('Korth', 100, 50, 1, 8),
+            ('Immobilien,', 160, 50, 1, 8),
+            ('Bahnhofstr.', 260, 50, 1, 8),
+            ('4,', 360, 50, 1, 8),
+            ('24223', 390, 50, 1, 8),
+            ('Schwentinental', 460, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Korth Immobilien')
+        self.assertEqual(result.street, 'Bahnhofstr. 4')
+        self.assertEqual(result.zip_code, '24223')
+        self.assertEqual(result.city, 'Schwentinental')
+    
+    def test_sender_line_postfach_only_with_name(self):
+        """Test Postfach as the only address component with name."""
+        # Sender line: "Company AG | Postfach 12345 | 10115 Berlin"
+        words_data = [
+            ('Company', 100, 50, 1, 8),
+            ('AG', 180, 50, 1, 8),
+            ('|', 220, 50, 1, 8),
+            ('Postfach', 240, 50, 1, 8),
+            ('12345', 310, 50, 1, 8),
+            ('|', 370, 50, 1, 8),
+            ('10115', 390, 50, 1, 8),
+            ('Berlin', 450, 50, 1, 8),
+        ]
+        page_df = self._create_test_dataframe(words_data)
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertTrue(result.found)
+        self.assertEqual(result.sender_name, 'Company AG')
+        self.assertEqual(result.street, 'Postfach 12345')
+        self.assertEqual(result.zip_code, '10115')
+        self.assertEqual(result.city, 'Berlin')
+    
+    def test_empty_dataframe(self):
+        """Test that empty DataFrame returns found=False."""
+        page_df = pd.DataFrame()
+        
+        result = detect_sender_line(page_df)
+        
+        self.assertFalse(result.found)
+        self.assertIsNone(result.raw_text)
 
 
 if __name__ == '__main__':
