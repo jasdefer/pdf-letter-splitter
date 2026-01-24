@@ -74,12 +74,11 @@ All parameters are optional except `-i` (input file):
 |-----------|-------------|---------|
 | `-i, --input` | **Required.** Path to input PDF file | None |
 | `--split-output` | Directory where split PDF files will be saved | `letters` |
-| `--verbose` | Show detailed processing information and debug logs | Disabled |
+| `--verbose` | Show detailed processing information, debug logs, and save OCR data to `ocr_output.tsv` | Disabled |
 | `--target-zip` | ZIP code to prioritize when multiple addresses are detected | None |
 | `--jobs N` | Number of parallel OCR jobs (0 = use all CPU cores) | `0` |
 | `--no-rotate` | Disable automatic page rotation correction (rotation is on by default) | Rotation enabled |
 | `--no-deskew` | Disable automatic page deskewing (deskewing is on by default) | Deskewing enabled |
-| `-o, --output` | Save OCR text data to TSV file (advanced usage) | None |
 | `--page-data` | Save page analysis data to JSON file (advanced usage) | None |
 
 ### Example with Parameters
@@ -230,18 +229,18 @@ Use `--verbose` for detailed debug information.
 
 ### Save OCR Data
 
-Extract raw OCR text with position data to a TSV file:
+When using the `--verbose` flag, OCR text with position data is automatically saved to `ocr_output.tsv` in the current directory. This file contains bounding box coordinates and confidence scores for all extracted text.
 
 **Bash:**
 ```bash
 docker run --rm -v /path/to/files:/work jasdefer/pdf-letter-splitter \
-  -i /work/input.pdf -o /work/output.tsv
+  -i /work/input.pdf --verbose
 ```
 
 **PowerShell:**
 ```powershell
 docker run --rm -v C:\path\to\files:/work jasdefer/pdf-letter-splitter `
-  -i /work/input.pdf -o /work/output.tsv
+  -i /work/input.pdf --verbose
 ```
 
 ### Save Page Analysis Data

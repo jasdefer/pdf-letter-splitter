@@ -231,11 +231,6 @@ def main():
         help='Input PDF file path (default: input.pdf)'
     )
     parser.add_argument(
-        '-o', '--output',
-        type=str,
-        help='Output TSV file path (default: output.tsv)'
-    )
-    parser.add_argument(
         '--page-data',
         type=str,
         help='Output JSON file path for page data analysis'
@@ -283,7 +278,6 @@ def main():
     )
     
     input_path = Path(args.input)
-    output_path = Path(args.output)
     
     try:
         logger.info("Starting OCR extraction...")
