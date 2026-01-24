@@ -267,6 +267,11 @@ def main():
         help='Output directory for split PDF files (one per letter)',
         default='letters'
     )
+    parser.add_argument(
+        '--single-page-only',
+        action='store_true',
+        help='Treat every page as a separate one-page letter, bypassing split heuristics.'
+    )
     
     args = parser.parse_args()
     
@@ -308,7 +313,7 @@ def main():
             
             # Group pages into letters using the splitter
             logger.info("Grouping pages into letters...")
-            letters = group_pages_into_letters(pages)
+            letters = group_pages_into_letters(pages, single_page_only=args.single_page_only)
             logger.info(f"Identified {len(letters)} letter(s) from {len(pages)} page(s)")
             
             # Log letter details

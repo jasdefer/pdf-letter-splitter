@@ -198,7 +198,7 @@ class TransitionScorer:
         return score, factors
 
 
-def group_pages_into_letters(pages: list[PageAnalysis]) -> list[Letter]:
+def group_pages_into_letters(pages: list[PageAnalysis], single_page_only: bool = False) -> list[Letter]:
     """
     Group a sequence of PageAnalysis objects into logical Letter objects.
     
@@ -207,6 +207,8 @@ def group_pages_into_letters(pages: list[PageAnalysis]) -> list[Letter]:
     
     Args:
         pages: List of PageAnalysis objects to group
+        single_page_only: If True, treat every page as a separate one-page letter,
+                         bypassing split heuristics (default: False)
     
     Returns:
         List of Letter objects, each containing related pages
@@ -214,6 +216,15 @@ def group_pages_into_letters(pages: list[PageAnalysis]) -> list[Letter]:
     if not pages:
         logger.debug("No pages to group")
         return []
+    
+    # Handle single-page-only mode
+    if single_page_only:
+        letters = []
+        for page in pages:
+            letters.append(Letter(pages=[page]))
+            logger.debug(f"Forcing split at Page {page.scan_page_num} (--single-page-only active)")
+        logger.info(f"Mode: --single-page-only. Created {len(letters)} single-page letters.")
+        return letters
     
     scorer = TransitionScorer()
     letters = []
