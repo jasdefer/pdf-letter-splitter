@@ -76,6 +76,7 @@ All parameters are optional except `-i` (input file):
 | `--split-output` | Directory where split PDF files will be saved | `letters` |
 | `--verbose` | Show detailed processing information, debug logs, and save OCR data to `ocr_output.tsv` | Disabled |
 | `--target-zip` | ZIP code to prioritize when multiple addresses are detected | None |
+| `--single-page-only` | Treat every page as a separate one-page letter, bypassing split heuristics | Disabled |
 | `--jobs N` | Number of parallel OCR jobs (0 = use all CPU cores) | `0` |
 | `--no-rotate` | Disable automatic page rotation correction (rotation is on by default) | Rotation enabled |
 | `--no-deskew` | Disable automatic page deskewing (deskewing is on by default) | Deskewing enabled |
